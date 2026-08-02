@@ -1868,27 +1868,14 @@ async function loadSegments() {
     if (!sheetId) return;
 
     try {
-        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getSegments&sheetId=' + encodeURIComponent(sheetId));
-        const data = await res.json();
-        if (data.segments) {
-            segments = data.segments.map(s => ({
-                ...s,
-                startDate: toInputDate(s.startDate || ''),
-                endDate: toInputDate(s.endDate || '')
-            }));
+        const url = getSheetCsvUrl(sheetId, '行程段落');
+        const res = await fetch(url);
+        if (res.ok) {
+            const csv = await res.text();
+            segments = parseSegmentsCSV(csv);
         }
     } catch (e) {
-        // Try loading from CSV as fallback
-        try {
-            const url = getSheetCsvUrl(sheetId, '行程段落');
-            const res = await fetch(url);
-            if (res.ok) {
-                const csv = await res.text();
-                segments = parseSegmentsCSV(csv);
-            }
-        } catch (e2) {
-            console.log('行程段落讀取失敗:', e2);
-        }
+        console.log('行程段落讀取失敗:', e);
     }
 }
 
@@ -2251,7 +2238,8 @@ function initEmergencyFromSegments() {
             currentSegEl.innerHTML = `
                 <div class="segment-card" style="border-left:4px solid var(--primary);margin-bottom:12px;">
                     <div class="segment-info">
-                        <div class="segment-city">📍 目前段落：${currentSeg.city}（${currentSeg.startDate} ~ ${currentSeg.endDate}）</div>
+                        <div class="segment-city">目前行程：${currentSeg.name}</div>
+                        <div class="segment-dates">${currentSeg.city}（${formatSegDate(currentSeg.startDate)} ~ ${formatSegDate(currentSeg.endDate)}）</div>
                         ${currentSeg.hotelName ? `<div class="segment-hotel">🏨 ${currentSeg.hotelName}</div>` : ''}
                         ${currentSeg.hotelAddress ? `<div class="segment-hotel">📫 ${currentSeg.hotelAddress}</div>` : ''}
                         ${currentSeg.hotelPhone ? `<div class="segment-hotel">📞 <a href="tel:${currentSeg.hotelPhone}">${currentSeg.hotelPhone}</a></div>` : ''}
@@ -2265,7 +2253,7 @@ function initEmergencyFromSegments() {
                 <div class="tool-header" style="font-size:0.85rem;">🏨 所有住宿</div>
                 ${segments.map(s => `
                     <div class="emergency-item" style="flex-direction:column;align-items:flex-start;gap:2px;">
-                        <span style="font-weight:500;">${s.city}（${s.startDate} ~ ${s.endDate}）</span>
+                        <span style="font-weight:500;">${s.name} · ${s.city}（${formatSegDate(s.startDate)} ~ ${formatSegDate(s.endDate)}）</span>
                         <span class="emergency-value">${s.hotelName || '未設定'}</span>
                         ${s.hotelPhone ? `<a href="tel:${s.hotelPhone}" class="emergency-value">${s.hotelPhone}</a>` : ''}
                     </div>

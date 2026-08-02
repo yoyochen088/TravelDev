@@ -1283,6 +1283,12 @@ body {
 
 .form-row .form-group {
     flex: 1;
+    min-width: 0;
+}
+
+.form-row .form-group input {
+    width: 100%;
+    min-width: 0;
 }
 
 .form-actions {
