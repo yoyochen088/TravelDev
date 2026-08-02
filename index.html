@@ -197,7 +197,7 @@
                         <span class="more-arrow">›</span>
                     </div>
                 </div>
-                <p class="hint" style="text-align:center;margin-top:16px;">版本 v2-8（架構升級）</p>
+                <p class="hint" style="text-align:center;margin-top:16px;">版本 v2-9（架構升級）</p>
 
                 <!-- Sub-pages (hidden by default) -->
                 <div id="more-subpage" class="more-subpage" style="display:none;">
@@ -388,7 +388,10 @@
             <button id="clear-sync-queue" class="tool-btn-sm" style="display:none;margin-bottom:12px;" onclick="clearSyncQueue()">清除待同步</button>
             <div class="schedule-date-selector">
                 <button class="icon-btn" id="sched-prev-day">◀</button>
-                <input type="date" id="sched-date-picker" class="sched-date-picker">
+                <label class="date-label-picker">
+                    <span id="sched-selected-date"></span>
+                    <input type="date" id="sched-date-picker" class="hidden-date-picker">
+                </label>
                 <button class="icon-btn" id="sched-next-day">▶</button>
             </div>
             <div id="schedule-edit-list" class="schedule-edit-list">

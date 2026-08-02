@@ -1119,6 +1119,15 @@ function toInputDate(str) {
     return '';
 }
 
+// Format date for display (e.g. "2026-08-08" → "8/8")
+function formatSegDate(str) {
+    if (!str) return '';
+    const normalized = toInputDate(str);
+    if (!normalized) return str;
+    const parts = normalized.split('-');
+    return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+}
+
 function updateCountdown() {
     const startStr = localStorage.getItem('tripStartDate');
     const endStr = localStorage.getItem('tripEndDate');
@@ -1845,7 +1854,11 @@ async function loadSegments() {
         const res = await fetch(CONFIG_SCRIPT_URL + '?action=getSegments&sheetId=' + encodeURIComponent(sheetId));
         const data = await res.json();
         if (data.segments) {
-            segments = data.segments;
+            segments = data.segments.map(s => ({
+                ...s,
+                startDate: toInputDate(s.startDate || ''),
+                endDate: toInputDate(s.endDate || '')
+            }));
         }
     } catch (e) {
         // Try loading from CSV as fallback
@@ -1870,7 +1883,7 @@ function parseSegmentsCSV(csv) {
         return {
             idx, name: cols[0] || '', country: cols[1] || '', city: cols[2] || '',
             lat: parseFloat(cols[3]) || 0, lng: parseFloat(cols[4]) || 0,
-            startDate: cols[5] || '', endDate: cols[6] || '',
+            startDate: toInputDate(cols[5] || ''), endDate: toInputDate(cols[6] || ''),
             hotelName: cols[7] || '', hotelAddress: cols[8] || '', hotelPhone: cols[9] || ''
         };
     }).filter(s => s.name);
@@ -2020,8 +2033,8 @@ function showSegmentForm(item) {
         customInput.style.display = 'none';
     }
 
-    $('#seg-start').value = item ? item.startDate : '';
-    $('#seg-end').value = item ? item.endDate : '';
+    $('#seg-start').value = item ? toInputDate(item.startDate) : '';
+    $('#seg-end').value = item ? toInputDate(item.endDate) : '';
     $('#seg-hotel-name').value = item ? item.hotelName : '';
     $('#seg-hotel-address').value = item ? item.hotelAddress : '';
     $('#seg-hotel-phone').value = item ? item.hotelPhone : '';
@@ -2040,7 +2053,7 @@ function renderSegmentsList() {
         <div class="segment-card">
             <div class="segment-info">
                 <div class="segment-city">${seg.country ? seg.country + ' · ' : ''}${seg.city}</div>
-                <div class="segment-dates">${seg.startDate} ~ ${seg.endDate}</div>
+                <div class="segment-dates">${formatSegDate(seg.startDate)} ~ ${formatSegDate(seg.endDate)}</div>
                 ${seg.hotelName ? `<div class="segment-hotel">🏨 ${seg.hotelName}</div>` : ''}
             </div>
             <div class="sched-actions">
@@ -2191,7 +2204,7 @@ async function loadTripWeatherBySegments() {
     // Render
     container.innerHTML = allDays.map(day => {
         if (day.type === 'header') {
-            return `<div class="weather-city-header">📍 ${day.city}（${day.startDate} ~ ${day.endDate}）</div>`;
+            return `<div class="weather-city-header">📍 ${day.city}（${formatSegDate(day.startDate)} ~ ${formatSegDate(day.endDate)}）</div>`;
         }
         if (!day.available && day.available !== undefined) {
             return `<div class="weather-day" style="opacity:0.5;"><span class="weather-date">${day.dayLabel}</span><span class="weather-icon">⏳</span><span class="weather-temp" style="flex:1;">${day.errorMsg || (day.error ? '載入失敗' : '尚無預報')}</span></div>`;
@@ -2316,8 +2329,14 @@ function initScheduleManage() {
 
 function updateSchedDateDisplay() {
     const picker = $('#sched-date-picker');
+    const label = $('#sched-selected-date');
     if (picker) {
         picker.value = schedManageDate.toISOString().split('T')[0];
+    }
+    if (label) {
+        label.textContent = schedManageDate.toLocaleDateString('zh-TW', {
+            month: 'long', day: 'numeric', weekday: 'short'
+        });
     }
 }
 

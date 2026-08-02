@@ -1160,14 +1160,6 @@ body {
     margin-bottom: 16px;
 }
 
-.sched-date-picker {
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 0.9rem;
-    text-align: center;
-}
-
 #sched-selected-date {
     font-size: 1rem;
     font-weight: 600;
