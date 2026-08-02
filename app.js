@@ -165,6 +165,8 @@ function updateClock() {
 }
 
 // --- Location ---
+let currentLocationName = '';
+
 function initLocation() {
     if ('geolocation' in navigator) {
         navigator.geolocation.watchPosition(
@@ -173,13 +175,34 @@ function initLocation() {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude
                 };
-                $('#current-location').textContent = `📍 目前位置已取得`;
+                // Only reverse geocode once (or when refreshed)
+                if (!currentLocationName) {
+                    reverseGeocode(currentPosition.lat, currentPosition.lng);
+                }
             },
             (err) => {
                 $('#current-location').textContent = '📍 無法取得位置（請開啟定位權限）';
             },
             { enableHighAccuracy: true, timeout: 10000 }
         );
+    }
+}
+
+async function reverseGeocode(lat, lng) {
+    try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&accept-language=zh`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const city = data.address.city || data.address.town || data.address.county || '';
+        const country = data.address.country || '';
+        if (city || country) {
+            currentLocationName = country ? `${city}, ${country}` : city;
+            $('#current-location').textContent = `📍 ${currentLocationName}`;
+        } else {
+            $('#current-location').textContent = '📍 目前位置已取得';
+        }
+    } catch (e) {
+        $('#current-location').textContent = '📍 目前位置已取得';
     }
 }
 
@@ -896,6 +919,12 @@ function initButtons() {
 
 async function refreshAll() {
     if (!currentUser) return;
+
+    // Reset location name to re-query on refresh
+    currentLocationName = '';
+    if (currentPosition) {
+        reverseGeocode(currentPosition.lat, currentPosition.lng);
+    }
 
     // Process any pending sync queue items
     await processSyncQueue();
