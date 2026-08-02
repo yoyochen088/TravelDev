@@ -2026,7 +2026,7 @@ function renderSegmentsList() {
     if (!container) return;
 
     if (segments.length === 0) {
-        container.innerHTML = '<p class="hint">尚未設定行程段落（可在 Sheet 加「行程段落」分頁或在此新增）</p>';
+        container.innerHTML = '<p class="hint">尚未設定行程段落</p>';
         return;
     }
 
