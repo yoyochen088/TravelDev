@@ -173,9 +173,7 @@ function initLocation() {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude
                 };
-                $('#current-location').textContent = getCurrentSegment() 
-                    ? `📍 ${getCurrentSegment().city}` 
-                    : `📍 定位中...`;
+                $('#current-location').textContent = `📍 目前位置已取得`;
             },
             (err) => {
                 $('#current-location').textContent = '📍 無法取得位置（請開啟定位權限）';
@@ -357,11 +355,6 @@ async function loadData() {
     showLoading(false);
     await loadSegments();
     updateCurrentWeather();
-    // Update location display with segment city
-    const seg = getCurrentSegment();
-    if (seg) {
-        $('#current-location').textContent = `📍 ${seg.country ? seg.country + ' · ' : ''}${seg.city}`;
-    }
 }
 // --- CSV Parsing ---
 function parseCSVLine(line) {
@@ -2169,9 +2162,6 @@ async function loadTripWeatherBySegments() {
             const rainProbs = data.daily.precipitation_probability_max;
             const codes = data.daily.weather_code;
 
-            // Add city header
-            allDays.push({ type: 'header', city: seg.city, startDate: seg.startDate, endDate: seg.endDate });
-
             const currentDate = new Date(seg.startDate + 'T00:00:00');
             const endDate = new Date(seg.endDate + 'T00:00:00');
 
@@ -2200,7 +2190,6 @@ async function loadTripWeatherBySegments() {
                 currentDate.setDate(currentDate.getDate() + 1);
             }
         } catch (e) {
-            allDays.push({ type: 'header', city: seg.city, startDate: seg.startDate, endDate: seg.endDate });
             allDays.push({ type: 'day', dayLabel: '', available: false, error: true });
         }
     }
