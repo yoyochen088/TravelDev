@@ -102,12 +102,14 @@ function initSubpage(page) {
             break;
         case 'trip-dates':
             initCountdown();
-            initSegments();
-            if (segments.length > 0) {
-                loadTripWeatherBySegments();
-            } else {
-                loadTripWeather();
-            }
+            loadSegments().then(() => {
+                initSegments();
+                if (segments.length > 0) {
+                    loadTripWeatherBySegments();
+                } else {
+                    loadTripWeather();
+                }
+            });
             break;
         case 'settings':
             initSettingsPage();
@@ -1093,7 +1095,11 @@ function initCountdown() {
         $('#save-trip-dates').disabled = false;
         $('#save-trip-dates').textContent = '修改';
         // Reload weather
-        loadTripWeather();
+        if (segments.length > 0) {
+            loadTripWeatherBySegments();
+        } else {
+            loadTripWeather();
+        }
     });
 }
 
@@ -1935,7 +1941,7 @@ function initSegments() {
         };
 
         if (!item.name || !item.city) {
-            alert('請至少填寫段落名和城市');
+            alert('請至少填寫旅程名稱和城市');
             saving = false;
             $('#seg-save').disabled = false;
             $('#seg-save').textContent = '儲存';
@@ -1979,7 +1985,7 @@ function populateCityDropdown(country) {
 
 function showSegmentForm(item) {
     $('#segment-form').style.display = 'block';
-    $('#segment-form-title').textContent = item ? '編輯段落' : '新增段落';
+    $('#segment-form-title').textContent = item ? '編輯旅途' : '新增旅途';
     $('#seg-name').value = item ? item.name : '';
 
     // Set country dropdown
@@ -2026,7 +2032,7 @@ function renderSegmentsList() {
     if (!container) return;
 
     if (segments.length === 0) {
-        container.innerHTML = '<p class="hint">尚未設定行程段落</p>';
+        container.innerHTML = '<p class="hint">尚未設定旅途資訊，請新增以取得天氣和住宿資料</p>';
         return;
     }
 
@@ -2051,7 +2057,7 @@ function editSegment(idx) {
 }
 
 async function deleteSegmentConfirm(idx) {
-    if (!confirm(`確定刪除段落「${segments[idx].name}」？`)) return;
+    if (!confirm(`確定刪除「${segments[idx].name}」？`)) return;
     await saveSegment('delete', null, idx);
 }
 
