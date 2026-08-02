@@ -398,7 +398,8 @@ function parseRandomCSV(csv) {
             place: cols[0] || '',
             address: cols[1] || '',
             type: cols[2] || '',
-            notes: cols[3] || ''
+            notes: cols[3] || '',
+            city: cols[4] || ''  // 新增城市欄（第5欄）
         };
     }).filter(item => item.place);
 }
@@ -419,7 +420,8 @@ function parseFoodCSV(csv) {
             queue: cols[6] || '',
             recommend: cols[7] || '',
             area: cols[8] || '',
-            notes: cols[9] || ''
+            notes: cols[9] || '',
+            city: cols[10] || ''  // 新增城市欄（第11欄）
         };
     }).filter(item => item.name);
 }
@@ -1729,6 +1731,103 @@ async function loadTripWeather() {
 
 // ==================== 行程段落管理 ====================
 
+// 常見旅遊城市座標資料庫
+const CITY_DATABASE = {
+    '日本': {
+        '東京': { lat: 35.6762, lng: 139.6503 },
+        '大阪': { lat: 34.6937, lng: 135.5023 },
+        '京都': { lat: 35.0116, lng: 135.7681 },
+        '名古屋': { lat: 35.1815, lng: 136.9066 },
+        '福岡': { lat: 33.5904, lng: 130.4017 },
+        '札幌': { lat: 43.0618, lng: 141.3545 },
+        '沖繩': { lat: 26.3344, lng: 127.8056 },
+        '神戶': { lat: 34.6901, lng: 135.1956 },
+        '橫濱': { lat: 35.4437, lng: 139.6380 },
+        '奈良': { lat: 34.6851, lng: 135.8048 },
+        '廣島': { lat: 34.3853, lng: 132.4553 },
+        '仙台': { lat: 38.2682, lng: 140.8694 },
+        '金澤': { lat: 36.5613, lng: 136.6562 },
+        '熊本': { lat: 32.8032, lng: 130.7079 },
+        '長崎': { lat: 32.7503, lng: 129.8777 },
+    },
+    '韓國': {
+        '首爾': { lat: 37.5665, lng: 126.9780 },
+        '釜山': { lat: 35.1796, lng: 129.0756 },
+        '濟州': { lat: 33.4996, lng: 126.5312 },
+        '仁川': { lat: 37.4563, lng: 126.7052 },
+        '大邱': { lat: 35.8714, lng: 128.6014 },
+    },
+    '泰國': {
+        '曼谷': { lat: 13.7563, lng: 100.5018 },
+        '清邁': { lat: 18.7883, lng: 98.9853 },
+        '普吉島': { lat: 7.8804, lng: 98.3923 },
+        '芭達雅': { lat: 12.9236, lng: 100.8825 },
+    },
+    '越南': {
+        '河內': { lat: 21.0278, lng: 105.8342 },
+        '胡志明市': { lat: 10.8231, lng: 106.6297 },
+        '峴港': { lat: 16.0544, lng: 108.2022 },
+    },
+    '新加坡': {
+        '新加坡': { lat: 1.3521, lng: 103.8198 },
+    },
+    '馬來西亞': {
+        '吉隆坡': { lat: 3.1390, lng: 101.6869 },
+        '檳城': { lat: 5.4164, lng: 100.3327 },
+        '沙巴': { lat: 5.9804, lng: 116.0735 },
+    },
+    '香港': {
+        '香港': { lat: 22.3193, lng: 114.1694 },
+    },
+    '澳門': {
+        '澳門': { lat: 22.1987, lng: 113.5439 },
+    },
+    '美國': {
+        '紐約': { lat: 40.7128, lng: -74.0060 },
+        '洛杉磯': { lat: 34.0522, lng: -118.2437 },
+        '舊金山': { lat: 37.7749, lng: -122.4194 },
+        '拉斯維加斯': { lat: 36.1699, lng: -115.1398 },
+    },
+    '英國': {
+        '倫敦': { lat: 51.5074, lng: -0.1278 },
+    },
+    '法國': {
+        '巴黎': { lat: 48.8566, lng: 2.3522 },
+    },
+    '澳洲': {
+        '雪梨': { lat: -33.8688, lng: 151.2093 },
+        '墨爾本': { lat: -37.8136, lng: 144.9631 },
+    },
+};
+
+const COUNTRY_LIST = Object.keys(CITY_DATABASE);
+
+function getCitiesForCountry(country) {
+    return CITY_DATABASE[country] ? Object.keys(CITY_DATABASE[country]) : [];
+}
+
+function getCityCoords(country, city) {
+    if (CITY_DATABASE[country] && CITY_DATABASE[country][city]) {
+        return CITY_DATABASE[country][city];
+    }
+    return null;
+}
+
+// Geocoding fallback for custom cities (using Open-Meteo geocoding API - free, no key)
+async function geocodeCity(cityName) {
+    try {
+        const res = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cityName)}&count=1&language=zh`);
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.results && data.results.length > 0) {
+            return { lat: data.results[0].latitude, lng: data.results[0].longitude };
+        }
+    } catch (e) {
+        console.log('Geocoding failed:', e);
+    }
+    return null;
+}
+
 let segments = [];
 let editingSegmentIndex = null;
 
@@ -1779,6 +1878,19 @@ function getCurrentSegment() {
 
 function initSegments() {
     renderSegmentsList();
+    populateCountryDropdown();
+
+    // Country change → update city dropdown
+    $('#seg-country').addEventListener('change', () => {
+        const country = $('#seg-country').value;
+        populateCityDropdown(country);
+    });
+
+    // City change → show custom input if "other"
+    $('#seg-city').addEventListener('change', () => {
+        const city = $('#seg-city').value;
+        $('#seg-city-custom').style.display = city === '__custom__' ? 'block' : 'none';
+    });
 
     $('#add-segment-btn').addEventListener('click', () => {
         editingSegmentIndex = null;
@@ -1796,12 +1908,25 @@ function initSegments() {
         $('#seg-save').disabled = true;
         $('#seg-save').textContent = '儲存中...';
 
+        const country = $('#seg-country').value;
+        let city = $('#seg-city').value;
+        if (city === '__custom__') {
+            city = $('#seg-city-custom').value.trim();
+        }
+
+        // Get coordinates
+        let coords = getCityCoords(country, city);
+        if (!coords && city) {
+            // Try geocoding for custom city
+            coords = await geocodeCity(city);
+        }
+
         const item = {
             name: $('#seg-name').value.trim(),
-            country: $('#seg-country').value.trim(),
-            city: $('#seg-city').value.trim(),
-            lat: parseFloat($('#seg-lat').value) || 0,
-            lng: parseFloat($('#seg-lng').value) || 0,
+            country: country,
+            city: city,
+            lat: coords ? coords.lat : 0,
+            lng: coords ? coords.lng : 0,
             startDate: $('#seg-start').value,
             endDate: $('#seg-end').value,
             hotelName: $('#seg-hotel-name').value.trim(),
@@ -1825,14 +1950,70 @@ function initSegments() {
     });
 }
 
+function populateCountryDropdown() {
+    const select = $('#seg-country');
+    if (!select) return;
+    select.innerHTML = '<option value="">選擇國家</option>' +
+        COUNTRY_LIST.map(c => `<option value="${c}">${c}</option>`).join('') +
+        '<option value="__custom__">其他（手動輸入）</option>';
+}
+
+function populateCityDropdown(country) {
+    const select = $('#seg-city');
+    const customInput = $('#seg-city-custom');
+    if (!select) return;
+
+    if (!country || country === '__custom__') {
+        select.innerHTML = '<option value="">請輸入城市</option><option value="__custom__">手動輸入</option>';
+        select.value = '__custom__';
+        customInput.style.display = 'block';
+        return;
+    }
+
+    const cities = getCitiesForCountry(country);
+    select.innerHTML = '<option value="">選擇城市</option>' +
+        cities.map(c => `<option value="${c}">${c}</option>`).join('') +
+        '<option value="__custom__">其他（手動輸入）</option>';
+    customInput.style.display = 'none';
+}
+
 function showSegmentForm(item) {
     $('#segment-form').style.display = 'block';
     $('#segment-form-title').textContent = item ? '編輯段落' : '新增段落';
     $('#seg-name').value = item ? item.name : '';
-    $('#seg-country').value = item ? item.country : '';
-    $('#seg-city').value = item ? item.city : '';
-    $('#seg-lat').value = item ? item.lat : '';
-    $('#seg-lng').value = item ? item.lng : '';
+
+    // Set country dropdown
+    const countrySelect = $('#seg-country');
+    if (item && item.country) {
+        // Check if country is in our list
+        if (COUNTRY_LIST.includes(item.country)) {
+            countrySelect.value = item.country;
+        } else {
+            countrySelect.value = '__custom__';
+        }
+        populateCityDropdown(item.country);
+    } else {
+        countrySelect.value = '';
+        populateCityDropdown('');
+    }
+
+    // Set city dropdown
+    const citySelect = $('#seg-city');
+    const customInput = $('#seg-city-custom');
+    if (item && item.city) {
+        const cities = getCitiesForCountry(item.country);
+        if (cities.includes(item.city)) {
+            citySelect.value = item.city;
+            customInput.style.display = 'none';
+        } else {
+            citySelect.value = '__custom__';
+            customInput.style.display = 'block';
+            customInput.value = item.city;
+        }
+    } else {
+        customInput.style.display = 'none';
+    }
+
     $('#seg-start').value = item ? item.startDate : '';
     $('#seg-end').value = item ? item.endDate : '';
     $('#seg-hotel-name').value = item ? item.hotelName : '';
@@ -1928,7 +2109,25 @@ async function loadTripWeatherBySegments() {
     const rainyDays = [];
 
     for (const seg of segments) {
-        if (!seg.lat || !seg.lng || !seg.startDate || !seg.endDate) continue;
+        if (!seg.startDate || !seg.endDate) continue;
+
+        // Add city header
+        allDays.push({ type: 'header', city: seg.city, startDate: seg.startDate, endDate: seg.endDate });
+
+        if (!seg.lat || !seg.lng) {
+            // No coordinates - show error for all days
+            const currentDate = new Date(seg.startDate + 'T00:00:00');
+            const endDate = new Date(seg.endDate + 'T00:00:00');
+            while (currentDate <= endDate) {
+                allDays.push({
+                    type: 'day',
+                    dayLabel: currentDate.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short' }),
+                    available: false, error: true, errorMsg: `無法查到「${seg.city}」的氣象`
+                });
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+            continue;
+        }
 
         try {
             const data = await fetchWeather(seg.lat, seg.lng, 16);
@@ -1989,7 +2188,7 @@ async function loadTripWeatherBySegments() {
             return `<div class="weather-city-header">📍 ${day.city}（${day.startDate} ~ ${day.endDate}）</div>`;
         }
         if (!day.available && day.available !== undefined) {
-            return `<div class="weather-day" style="opacity:0.5;"><span class="weather-date">${day.dayLabel}</span><span class="weather-icon">⏳</span><span class="weather-temp" style="flex:1;">${day.error ? '載入失敗' : '尚無預報'}</span></div>`;
+            return `<div class="weather-day" style="opacity:0.5;"><span class="weather-date">${day.dayLabel}</span><span class="weather-icon">⏳</span><span class="weather-temp" style="flex:1;">${day.errorMsg || (day.error ? '載入失敗' : '尚無預報')}</span></div>`;
         }
         return `<div class="weather-day ${day.rain >= 50 ? 'rainy' : ''}"><span class="weather-date">${day.dayLabel}</span><span class="weather-icon">${day.emoji}</span><span class="weather-temp">${day.maxTemp}° / ${day.minTemp}°</span><span class="weather-rain">降雨 ${day.rain}%</span></div>`;
     }).join('');
@@ -2622,15 +2821,26 @@ function formatAIResponse(text) {
 function buildSystemContext() {
     const now = new Date();
     const today = formatDate(now);
+    const todayISO = now.toISOString().split('T')[0];
     const currentTime = now.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
+
+    // Determine current segment
+    const currentSeg = getCurrentSegment();
 
     let context = `你是一個旅遊行程助手。現在的時間是 ${today} ${currentTime}。`;
 
-    if (currentPosition) {
-        context += `\n使用者目前位置：緯度 ${currentPosition.lat.toFixed(5)}, 經度 ${currentPosition.lng.toFixed(5)}`;
+    if (currentSeg) {
+        context += `\n目前所在段落：${currentSeg.country} ${currentSeg.city}（${currentSeg.startDate} ~ ${currentSeg.endDate}）`;
+        if (currentSeg.hotelName) {
+            context += `\n住宿：${currentSeg.hotelName}（${currentSeg.hotelAddress}）`;
+        }
     }
 
-    // Add today's schedule
+    if (currentPosition) {
+        context += `\n使用者 GPS 位置：${currentPosition.lat.toFixed(5)}, ${currentPosition.lng.toFixed(5)}`;
+    }
+
+    // Today's schedule only
     const todaySchedule = scheduleData.filter(item => normalizeDate(item.date) === today);
     if (todaySchedule.length > 0) {
         context += '\n\n【今天的行程】\n';
@@ -2639,32 +2849,56 @@ function buildSystemContext() {
         });
     }
 
-    // Add all schedule data (compact)
-    if (scheduleData.length > 0) {
-        context += '\n\n【所有行程】\n';
-        scheduleData.forEach(item => {
-            context += `- ${item.date} ${item.startTime}~${item.endTime} ${item.place}（${item.address}）${item.notes ? ' / ' + item.notes : ''}\n`;
+    // Tomorrow's schedule (for planning ahead)
+    const tomorrow = new Date(now);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = formatDate(tomorrow);
+    const tomorrowSchedule = scheduleData.filter(item => normalizeDate(item.date) === tomorrowStr);
+    if (tomorrowSchedule.length > 0) {
+        context += '\n\n【明天的行程】\n';
+        tomorrowSchedule.forEach(item => {
+            context += `- ${item.startTime}~${item.endTime} ${item.place}（${item.address}）${item.notes ? '備註：' + item.notes : ''}\n`;
         });
     }
 
-    // Add food list
+    // Food list - filter by current segment's city
     if (foodList.length > 0) {
+        let relevantFood = foodList;
+        if (currentSeg && currentSeg.city) {
+            const cityFood = foodList.filter(f => f.city && f.city === currentSeg.city);
+            if (cityFood.length > 0) {
+                relevantFood = cityFood;
+            } else {
+                // Fallback: try area field
+                const areaFood = foodList.filter(f => f.area && f.area.includes(currentSeg.city));
+                if (areaFood.length > 0) relevantFood = areaFood;
+            }
+        }
+        relevantFood = relevantFood.slice(0, 30);
         context += '\n\n【美食清單】\n';
-        foodList.forEach(item => {
-            const info = [item.type, item.price, item.rating ? `評分${item.rating}` : '', item.area, item.queue, item.recommend].filter(Boolean).join('、');
-            context += `- ${item.name}（${item.address}）${info ? ' / ' + info : ''}${item.notes ? ' / ' + item.notes : ''}\n`;
+        relevantFood.forEach(item => {
+            context += `- ${item.name}（${item.address || ''}）${item.type || ''}${item.recommend ? ' 推薦：' + item.recommend : ''}\n`;
         });
+        if (relevantFood.length < foodList.length) {
+            context += `（僅列出${currentSeg ? currentSeg.city : ''}相關 ${relevantFood.length} 家，共 ${foodList.length} 家）\n`;
+        }
     }
 
-    // Add random places
+    // Random places - filter by current segment's city
     if (randomPlaces.length > 0) {
-        context += '\n\n【隨機景點】\n';
-        randomPlaces.forEach(item => {
-            context += `- ${item.place}（${item.address}）類型：${item.type}${item.notes ? ' / ' + item.notes : ''}\n`;
+        let relevantPlaces = randomPlaces;
+        if (currentSeg && currentSeg.city) {
+            const cityPlaces = randomPlaces.filter(p => p.city && p.city === currentSeg.city);
+            if (cityPlaces.length > 0) relevantPlaces = cityPlaces;
+        }
+        relevantPlaces = relevantPlaces.slice(0, 20);
+        context += '\n\n【景點清單】\n';
+        relevantPlaces.forEach(item => {
+            context += `- ${item.place}（${item.address || ''}）${item.type || ''}\n`;
         });
     }
 
-    context += '\n\n請用繁體中文回答。根據以上資料回答使用者的問題，提供具體的建議和規劃。如果行程有延遲，幫忙建議如何調整。回答盡量簡潔實用。';
+    context += '\n\n請用繁體中文回答。根據以上資料回答問題，提供具體建議。回答簡潔實用。';
 
     return context;
 }

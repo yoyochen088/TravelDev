@@ -197,7 +197,7 @@
                         <span class="more-arrow">›</span>
                     </div>
                 </div>
-                <p class="hint" style="text-align:center;margin-top:16px;">版本 v2-1（架構升級）</p>
+                <p class="hint" style="text-align:center;margin-top:16px;">版本 v2-4（架構升級）</p>
 
                 <!-- Sub-pages (hidden by default) -->
                 <div id="more-subpage" class="more-subpage" style="display:none;">
@@ -347,14 +347,19 @@
 
             <div id="segment-form" class="schedule-form" style="display:none;margin-top:12px;">
                 <div class="tool-header" id="segment-form-title">新增段落</div>
-                <div class="form-row">
-                    <div class="form-group"><label>段落名</label><input type="text" id="seg-name" placeholder="東京"></div>
-                    <div class="form-group"><label>國家</label><input type="text" id="seg-country" placeholder="日本"></div>
+                <div class="form-group"><label>段落名</label><input type="text" id="seg-name" placeholder="例：出發東京"></div>
+                <div class="form-group">
+                    <label>國家</label>
+                    <select id="seg-country">
+                        <option value="">選擇國家</option>
+                    </select>
                 </div>
-                <div class="form-group"><label>城市</label><input type="text" id="seg-city" placeholder="東京"></div>
-                <div class="form-row">
-                    <div class="form-group"><label>緯度</label><input type="number" id="seg-lat" step="0.0001" placeholder="35.6762"></div>
-                    <div class="form-group"><label>經度</label><input type="number" id="seg-lng" step="0.0001" placeholder="139.6503"></div>
+                <div class="form-group">
+                    <label>城市</label>
+                    <select id="seg-city">
+                        <option value="">先選擇國家</option>
+                    </select>
+                    <input type="text" id="seg-city-custom" placeholder="輸入城市名稱" style="display:none;margin-top:6px;">
                 </div>
                 <div class="form-row">
                     <div class="form-group"><label>開始日</label><input type="date" id="seg-start"></div>
