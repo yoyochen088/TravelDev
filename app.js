@@ -102,14 +102,24 @@ function initSubpage(page) {
             break;
         case 'trip-dates':
             initCountdown();
-            loadSegments().then(() => {
+            // Only load segments if not already loaded
+            if (segments.length === 0) {
+                loadSegments().then(() => {
+                    initSegments();
+                    if (segments.length > 0) {
+                        loadTripWeatherBySegments();
+                    } else {
+                        loadTripWeather();
+                    }
+                });
+            } else {
                 initSegments();
                 if (segments.length > 0) {
                     loadTripWeatherBySegments();
                 } else {
                     loadTripWeather();
                 }
-            });
+            }
             break;
         case 'settings':
             initSettingsPage();
@@ -163,7 +173,9 @@ function initLocation() {
                     lat: pos.coords.latitude,
                     lng: pos.coords.longitude
                 };
-                $('#current-location').textContent = `📍 ${pos.coords.latitude.toFixed(4)}, ${pos.coords.longitude.toFixed(4)}`;
+                $('#current-location').textContent = getCurrentSegment() 
+                    ? `📍 ${getCurrentSegment().city}` 
+                    : `📍 定位中...`;
             },
             (err) => {
                 $('#current-location').textContent = '📍 無法取得位置（請開啟定位權限）';
@@ -345,6 +357,11 @@ async function loadData() {
     showLoading(false);
     await loadSegments();
     updateCurrentWeather();
+    // Update location display with segment city
+    const seg = getCurrentSegment();
+    if (seg) {
+        $('#current-location').textContent = `📍 ${seg.country ? seg.country + ' · ' : ''}${seg.city}`;
+    }
 }
 // --- CSV Parsing ---
 function parseCSVLine(line) {
@@ -2121,13 +2138,22 @@ async function loadTripWeatherBySegments() {
         return;
     }
 
+    // Deduplicate segments by city+dates
+    const seen = new Set();
+    const uniqueSegments = segments.filter(seg => {
+        const key = `${seg.city}-${seg.startDate}-${seg.endDate}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
     section.style.display = 'block';
     container.innerHTML = '<p class="hint">載入天氣中...</p>';
 
     const allDays = [];
     const rainyDays = [];
 
-    for (const seg of segments) {
+    for (const seg of uniqueSegments) {
         if (!seg.startDate || !seg.endDate) continue;
 
         // Add city header
