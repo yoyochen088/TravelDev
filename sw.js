@@ -1,4 +1,4 @@
-const CACHE_NAME = 'travel-helper-v38';
+const CACHE_NAME = 'travel-helper-v2-1';
 const ASSETS = [
     './',
     './index.html',

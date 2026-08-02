@@ -1058,6 +1058,15 @@ body {
     gap: 8px;
 }
 
+.weather-city-header {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary);
+    padding: 8px 0 4px;
+    border-bottom: 1px solid var(--border);
+    margin-top: 8px;
+}
+
 .weather-day {
     display: flex;
     align-items: center;
@@ -1097,6 +1106,49 @@ body {
 .weather-day.rainy .weather-rain {
     color: #d93025;
     font-weight: 600;
+}
+
+/* Segments */
+.segments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.segment-card {
+    display: flex;
+    align-items: center;
+    background: white;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: var(--shadow);
+    gap: 10px;
+}
+
+.segment-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.segment-city {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.segment-dates {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.segment-hotel {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+.emergency-segment-info {
+    margin-bottom: 12px;
 }
 
 /* Schedule Management */

@@ -98,11 +98,16 @@ function initSubpage(page) {
             renderPackingList();
             break;
         case 'emergency':
-            initEmergency();
+            initEmergencyFromSegments();
             break;
         case 'trip-dates':
             initCountdown();
-            loadTripWeather();
+            initSegments();
+            if (segments.length > 0) {
+                loadTripWeatherBySegments();
+            } else {
+                loadTripWeather();
+            }
             break;
         case 'settings':
             initSettingsPage();
@@ -336,6 +341,7 @@ async function loadData() {
     }
 
     showLoading(false);
+    await loadSegments();
     updateCurrentWeather();
 }
 // --- CSV Parsing ---
@@ -1717,6 +1723,311 @@ async function loadTripWeather() {
         console.log('旅程天氣取得失敗:', e);
         section.style.display = 'block';
         container.innerHTML = '<p class="hint">天氣資料載入失敗</p>';
+    }
+}
+
+
+// ==================== 行程段落管理 ====================
+
+let segments = [];
+let editingSegmentIndex = null;
+
+async function loadSegments() {
+    const sheetId = window.SHEET_ID;
+    if (!sheetId) return;
+
+    try {
+        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getSegments&sheetId=' + encodeURIComponent(sheetId));
+        const data = await res.json();
+        if (data.segments) {
+            segments = data.segments;
+        }
+    } catch (e) {
+        // Try loading from CSV as fallback
+        try {
+            const url = getSheetCsvUrl(sheetId, '行程段落');
+            const res = await fetch(url);
+            if (res.ok) {
+                const csv = await res.text();
+                segments = parseSegmentsCSV(csv);
+            }
+        } catch (e2) {
+            console.log('行程段落讀取失敗:', e2);
+        }
+    }
+}
+
+function parseSegmentsCSV(csv) {
+    const lines = csv.split('\n').filter(l => l.trim());
+    if (lines.length < 2) return [];
+    return lines.slice(1).map((line, idx) => {
+        const cols = parseCSVLine(line);
+        return {
+            idx, name: cols[0] || '', country: cols[1] || '', city: cols[2] || '',
+            lat: parseFloat(cols[3]) || 0, lng: parseFloat(cols[4]) || 0,
+            startDate: cols[5] || '', endDate: cols[6] || '',
+            hotelName: cols[7] || '', hotelAddress: cols[8] || '', hotelPhone: cols[9] || ''
+        };
+    }).filter(s => s.name);
+}
+
+function getCurrentSegment() {
+    if (segments.length === 0) return null;
+    const today = new Date().toISOString().split('T')[0];
+    return segments.find(s => today >= s.startDate && today <= s.endDate) || segments[0];
+}
+
+function initSegments() {
+    renderSegmentsList();
+
+    $('#add-segment-btn').addEventListener('click', () => {
+        editingSegmentIndex = null;
+        showSegmentForm(null);
+    });
+
+    $('#seg-cancel').addEventListener('click', () => {
+        $('#segment-form').style.display = 'none';
+    });
+
+    let saving = false;
+    $('#seg-save').addEventListener('click', async () => {
+        if (saving) return;
+        saving = true;
+        $('#seg-save').disabled = true;
+        $('#seg-save').textContent = '儲存中...';
+
+        const item = {
+            name: $('#seg-name').value.trim(),
+            country: $('#seg-country').value.trim(),
+            city: $('#seg-city').value.trim(),
+            lat: parseFloat($('#seg-lat').value) || 0,
+            lng: parseFloat($('#seg-lng').value) || 0,
+            startDate: $('#seg-start').value,
+            endDate: $('#seg-end').value,
+            hotelName: $('#seg-hotel-name').value.trim(),
+            hotelAddress: $('#seg-hotel-address').value.trim(),
+            hotelPhone: $('#seg-hotel-phone').value.trim()
+        };
+
+        if (!item.name || !item.city) {
+            alert('請至少填寫段落名和城市');
+            saving = false;
+            $('#seg-save').disabled = false;
+            $('#seg-save').textContent = '儲存';
+            return;
+        }
+
+        await saveSegment(editingSegmentIndex !== null ? 'update' : 'add', item, editingSegmentIndex);
+        $('#segment-form').style.display = 'none';
+        saving = false;
+        $('#seg-save').disabled = false;
+        $('#seg-save').textContent = '儲存';
+    });
+}
+
+function showSegmentForm(item) {
+    $('#segment-form').style.display = 'block';
+    $('#segment-form-title').textContent = item ? '編輯段落' : '新增段落';
+    $('#seg-name').value = item ? item.name : '';
+    $('#seg-country').value = item ? item.country : '';
+    $('#seg-city').value = item ? item.city : '';
+    $('#seg-lat').value = item ? item.lat : '';
+    $('#seg-lng').value = item ? item.lng : '';
+    $('#seg-start').value = item ? item.startDate : '';
+    $('#seg-end').value = item ? item.endDate : '';
+    $('#seg-hotel-name').value = item ? item.hotelName : '';
+    $('#seg-hotel-address').value = item ? item.hotelAddress : '';
+    $('#seg-hotel-phone').value = item ? item.hotelPhone : '';
+}
+
+function renderSegmentsList() {
+    const container = $('#segments-list');
+    if (!container) return;
+
+    if (segments.length === 0) {
+        container.innerHTML = '<p class="hint">尚未設定行程段落（可在 Sheet 加「行程段落」分頁或在此新增）</p>';
+        return;
+    }
+
+    container.innerHTML = segments.map((seg, idx) => `
+        <div class="segment-card">
+            <div class="segment-info">
+                <div class="segment-city">${seg.country ? seg.country + ' · ' : ''}${seg.city}</div>
+                <div class="segment-dates">${seg.startDate} ~ ${seg.endDate}</div>
+                ${seg.hotelName ? `<div class="segment-hotel">🏨 ${seg.hotelName}</div>` : ''}
+            </div>
+            <div class="sched-actions">
+                <button class="sched-action-btn edit" onclick="editSegment(${idx})">✏️</button>
+                <button class="sched-action-btn delete" onclick="deleteSegmentConfirm(${idx})">🗑️</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function editSegment(idx) {
+    editingSegmentIndex = idx;
+    showSegmentForm(segments[idx]);
+}
+
+async function deleteSegmentConfirm(idx) {
+    if (!confirm(`確定刪除段落「${segments[idx].name}」？`)) return;
+    await saveSegment('delete', null, idx);
+}
+
+async function saveSegment(action, item, idx) {
+    const sheetId = window.SHEET_ID;
+    const payload = {
+        action: action === 'add' ? 'addSegment' : action === 'update' ? 'updateSegment' : 'deleteSegment',
+        sheetId, rowIndex: idx, item
+    };
+
+    try {
+        const res = await fetch(CONFIG_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(payload),
+            redirect: 'follow'
+        });
+
+        if (!res.ok && res.status !== 0) throw new Error(`HTTP ${res.status}`);
+
+        if (action === 'add') segments.push({ ...item, idx: segments.length });
+        else if (action === 'update') segments[idx] = { ...segments[idx], ...item };
+        else if (action === 'delete') segments.splice(idx, 1);
+
+        renderSegmentsList();
+        loadTripWeatherBySegments();
+        alert(action === 'delete' ? '✅ 已刪除' : '✅ 已儲存');
+    } catch (err) {
+        addToSyncQueue(payload);
+        if (action === 'add') segments.push({ ...item, idx: segments.length });
+        else if (action === 'update') segments[idx] = { ...segments[idx], ...item };
+        else if (action === 'delete') segments.splice(idx, 1);
+        renderSegmentsList();
+        alert('⚠️ 已暫存本地（網路恢復後自動同步）');
+    }
+}
+
+// Weather by segments
+async function loadTripWeatherBySegments() {
+    const section = $('#trip-weather-section');
+    const container = $('#trip-weather-list');
+    const alertEl = $('#weather-alert');
+    if (!section || !container) return;
+
+    if (segments.length === 0) {
+        // Fallback to old single-location weather
+        loadTripWeather();
+        return;
+    }
+
+    section.style.display = 'block';
+    container.innerHTML = '<p class="hint">載入天氣中...</p>';
+
+    const allDays = [];
+    const rainyDays = [];
+
+    for (const seg of segments) {
+        if (!seg.lat || !seg.lng || !seg.startDate || !seg.endDate) continue;
+
+        try {
+            const data = await fetchWeather(seg.lat, seg.lng, 16);
+            const dates = data.daily.time;
+            const maxTemps = data.daily.temperature_2m_max;
+            const minTemps = data.daily.temperature_2m_min;
+            const rainProbs = data.daily.precipitation_probability_max;
+            const codes = data.daily.weather_code;
+
+            // Add city header
+            allDays.push({ type: 'header', city: seg.city, startDate: seg.startDate, endDate: seg.endDate });
+
+            const currentDate = new Date(seg.startDate + 'T00:00:00');
+            const endDate = new Date(seg.endDate + 'T00:00:00');
+
+            while (currentDate <= endDate) {
+                const dateStr = currentDate.toISOString().split('T')[0];
+                const idx = dates.indexOf(dateStr);
+                if (idx !== -1) {
+                    const rain = rainProbs[idx];
+                    const dayInfo = {
+                        type: 'day',
+                        dayLabel: currentDate.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short' }),
+                        emoji: getWeatherEmoji(codes[idx]),
+                        maxTemp: Math.round(maxTemps[idx]),
+                        minTemp: Math.round(minTemps[idx]),
+                        rain, city: seg.city
+                    };
+                    allDays.push(dayInfo);
+                    if (rain >= 50) rainyDays.push(dayInfo);
+                } else {
+                    allDays.push({
+                        type: 'day',
+                        dayLabel: currentDate.toLocaleDateString('zh-TW', { month: 'numeric', day: 'numeric', weekday: 'short' }),
+                        available: false
+                    });
+                }
+                currentDate.setDate(currentDate.getDate() + 1);
+            }
+        } catch (e) {
+            allDays.push({ type: 'header', city: seg.city, startDate: seg.startDate, endDate: seg.endDate });
+            allDays.push({ type: 'day', dayLabel: '', available: false, error: true });
+        }
+    }
+
+    // Rain alert
+    if (rainyDays.length > 0) {
+        const rainyList = rainyDays.map(d => `${d.city} ${d.dayLabel}`).join('、');
+        alertEl.textContent = `☔ 提醒：${rainyList} 降雨機率高，記得帶傘！`;
+        alertEl.style.display = 'block';
+    } else {
+        alertEl.style.display = 'none';
+    }
+
+    // Render
+    container.innerHTML = allDays.map(day => {
+        if (day.type === 'header') {
+            return `<div class="weather-city-header">📍 ${day.city}（${day.startDate} ~ ${day.endDate}）</div>`;
+        }
+        if (!day.available && day.available !== undefined) {
+            return `<div class="weather-day" style="opacity:0.5;"><span class="weather-date">${day.dayLabel}</span><span class="weather-icon">⏳</span><span class="weather-temp" style="flex:1;">${day.error ? '載入失敗' : '尚無預報'}</span></div>`;
+        }
+        return `<div class="weather-day ${day.rain >= 50 ? 'rainy' : ''}"><span class="weather-date">${day.dayLabel}</span><span class="weather-icon">${day.emoji}</span><span class="weather-temp">${day.maxTemp}° / ${day.minTemp}°</span><span class="weather-rain">降雨 ${day.rain}%</span></div>`;
+    }).join('');
+}
+
+// Emergency info from segments
+function initEmergencyFromSegments() {
+    const currentSeg = getCurrentSegment();
+    const currentSegEl = $('#emergency-current-segment');
+    const allHotelsEl = $('#emergency-all-hotels');
+
+    if (segments.length > 0 && currentSegEl) {
+        if (currentSeg) {
+            currentSegEl.style.display = 'block';
+            currentSegEl.innerHTML = `
+                <div class="segment-card" style="border-left:4px solid var(--primary);margin-bottom:12px;">
+                    <div class="segment-info">
+                        <div class="segment-city">📍 目前段落：${currentSeg.city}（${currentSeg.startDate} ~ ${currentSeg.endDate}）</div>
+                        ${currentSeg.hotelName ? `<div class="segment-hotel">🏨 ${currentSeg.hotelName}</div>` : ''}
+                        ${currentSeg.hotelAddress ? `<div class="segment-hotel">📫 ${currentSeg.hotelAddress}</div>` : ''}
+                        ${currentSeg.hotelPhone ? `<div class="segment-hotel">📞 <a href="tel:${currentSeg.hotelPhone}">${currentSeg.hotelPhone}</a></div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        if (allHotelsEl && segments.length > 1) {
+            allHotelsEl.innerHTML = `
+                <div class="tool-header" style="font-size:0.85rem;">🏨 所有住宿</div>
+                ${segments.map(s => `
+                    <div class="emergency-item" style="flex-direction:column;align-items:flex-start;gap:2px;">
+                        <span style="font-weight:500;">${s.city}（${s.startDate} ~ ${s.endDate}）</span>
+                        <span class="emergency-value">${s.hotelName || '未設定'}</span>
+                        ${s.hotelPhone ? `<a href="tel:${s.hotelPhone}" class="emergency-value">${s.hotelPhone}</a>` : ''}
+                    </div>
+                `).join('')}
+            `;
+        }
     }
 }
 

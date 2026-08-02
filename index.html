@@ -197,7 +197,7 @@
                         <span class="more-arrow">›</span>
                     </div>
                 </div>
-                <p class="hint" style="text-align:center;margin-top:16px;">版本 v38</p>
+                <p class="hint" style="text-align:center;margin-top:16px;">版本 v2-1（架構升級）</p>
 
                 <!-- Sub-pages (hidden by default) -->
                 <div id="more-subpage" class="more-subpage" style="display:none;">
@@ -297,6 +297,7 @@
     <template id="tpl-emergency">
         <div class="tool-section">
             <div class="tool-header">🆘 緊急資訊</div>
+            <div id="emergency-current-segment" class="emergency-segment-info" style="display:none;"></div>
             <div class="emergency-list">
                 <div class="emergency-item">
                     <span class="emergency-label">台灣駐日辦事處</span>
@@ -310,21 +311,8 @@
                     <span class="emergency-label">日本救護車</span>
                     <a href="tel:119" class="emergency-value">119</a>
                 </div>
-                <div class="emergency-item">
-                    <span class="emergency-label">住宿地址</span>
-                    <span class="emergency-value" id="hotel-address">未設定</span>
-                </div>
-                <div class="emergency-item">
-                    <span class="emergency-label">住宿電話</span>
-                    <a href="" class="emergency-value" id="hotel-phone">未設定</a>
-                </div>
             </div>
-            <button id="toggle-emergency-edit" class="tool-btn">修改住宿資訊</button>
-            <div class="emergency-edit" id="emergency-edit-form" style="display:none;">
-                <input type="text" id="edit-hotel-address" placeholder="住宿地址">
-                <input type="text" id="edit-hotel-phone" placeholder="住宿電話">
-                <button id="save-emergency" class="tool-btn">儲存</button>
-            </div>
+            <div id="emergency-all-hotels" style="margin-top:16px;"></div>
         </div>
     </template>
 
@@ -347,6 +335,42 @@
                 <button id="save-trip-dates" class="tool-btn" style="width:100%;">修改</button>
             </div>
         </div>
+
+        <!-- Segments -->
+        <div class="tool-section">
+            <div class="tool-header">📍 行程段落</div>
+            <p class="hint" style="margin-bottom:12px;">每段落代表一個城市，含住宿與天氣</p>
+            <div id="segments-list" class="segments-list">
+                <p class="hint">載入中...</p>
+            </div>
+            <button id="add-segment-btn" class="action-btn" style="width:100%;margin-top:12px;">＋ 新增段落</button>
+
+            <div id="segment-form" class="schedule-form" style="display:none;margin-top:12px;">
+                <div class="tool-header" id="segment-form-title">新增段落</div>
+                <div class="form-row">
+                    <div class="form-group"><label>段落名</label><input type="text" id="seg-name" placeholder="東京"></div>
+                    <div class="form-group"><label>國家</label><input type="text" id="seg-country" placeholder="日本"></div>
+                </div>
+                <div class="form-group"><label>城市</label><input type="text" id="seg-city" placeholder="東京"></div>
+                <div class="form-row">
+                    <div class="form-group"><label>緯度</label><input type="number" id="seg-lat" step="0.0001" placeholder="35.6762"></div>
+                    <div class="form-group"><label>經度</label><input type="number" id="seg-lng" step="0.0001" placeholder="139.6503"></div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group"><label>開始日</label><input type="date" id="seg-start"></div>
+                    <div class="form-group"><label>結束日</label><input type="date" id="seg-end"></div>
+                </div>
+                <div class="form-group"><label>住宿名稱</label><input type="text" id="seg-hotel-name" placeholder="飯店名稱"></div>
+                <div class="form-group"><label>住宿地址</label><input type="text" id="seg-hotel-address" placeholder="完整地址"></div>
+                <div class="form-group"><label>住宿電話</label><input type="text" id="seg-hotel-phone" placeholder="+81-3-xxxx"></div>
+                <div class="form-actions">
+                    <button id="seg-cancel" class="tool-btn" style="background:var(--text-secondary);">取消</button>
+                    <button id="seg-save" class="tool-btn">儲存</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Weather -->
         <div class="tool-section" id="trip-weather-section" style="display:none;">
             <div class="tool-header">🌤️ 旅程天氣</div>
             <div id="weather-alert" class="weather-alert" style="display:none;"></div>
