@@ -1257,6 +1257,10 @@ body {
     border: 1px solid var(--border);
     border-radius: 6px;
     font-size: 0.9rem;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
 }
 
 .form-group select {
@@ -1289,6 +1293,7 @@ body {
 .form-row .form-group input {
     width: 100%;
     min-width: 0;
+    overflow: hidden;
 }
 
 .form-actions {

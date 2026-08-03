@@ -356,46 +356,62 @@ async function loadData() {
     const sheetId = window.SHEET_ID;
     if (!sheetId) return;
 
-    showLoading(true);
+    // 1. 先從 localStorage 快取載入（秒開）
+    const cached = localStorage.getItem('cachedAllData');
+    if (cached) {
+        try {
+            const data = JSON.parse(cached);
+            applyAllData(data);
+        } catch (e) {}
+        // Don't show loading if we have cache
+    } else {
+        showLoading(true);
+    }
 
+    // 2. 背景從 API 更新最新資料
     try {
         const res = await fetch(CONFIG_SCRIPT_URL + '?action=getAllData' + getAuthParams());
         const data = await res.json();
 
         if (data.error) {
             console.error('getAllData error:', data.error);
-            showLoading(false);
+            if (!cached) showLoading(false);
             return;
         }
 
-        // Map API data to local variables
-        if (data.schedule) {
-            scheduleData = mapApiData(data.schedule, mapScheduleItem);
-        }
-        if (data.places) {
-            randomPlaces = mapApiData(data.places, mapRandomPlace);
-        }
-        if (data.food) {
-            foodList = mapApiData(data.food, mapFoodItem);
-        }
-        if (data.packing) {
-            packingItems = mapApiData(data.packing, mapPackingItem);
-        }
-        if (data.segments) {
-            segments = mapApiData(data.segments, mapSegmentItem);
-        }
-
-        updateNowTab();
-        updateTimeline();
-        updateRandomList();
-        updateFoodList();
-        renderPackingList();
+        // Save to cache
+        localStorage.setItem('cachedAllData', JSON.stringify(data));
+        applyAllData(data);
     } catch (err) {
         console.error('載入資料失敗:', err);
     }
 
     showLoading(false);
     updateCurrentWeather();
+}
+
+function applyAllData(data) {
+    if (data.schedule) {
+        scheduleData = mapApiData(data.schedule, mapScheduleItem);
+    }
+    if (data.places) {
+        randomPlaces = mapApiData(data.places, mapRandomPlace);
+    }
+    if (data.food) {
+        foodList = mapApiData(data.food, mapFoodItem);
+    }
+    if (data.packing) {
+        packingItems = mapApiData(data.packing, mapPackingItem);
+    }
+    if (data.segments) {
+        segments = mapApiData(data.segments, mapSegmentItem);
+    }
+
+    updateNowTab();
+    updateTimeline();
+    updateRandomList();
+    updateFoodList();
+    renderPackingList();
 }
 
 // --- API Data Mapping ---
@@ -2643,7 +2659,7 @@ async function processSyncQueue() {
 // ==================== AI 助手 (Gemini via Apps Script Proxy) ====================
 
 const GEMINI_MODEL = 'gemini-3.1-flash-lite';
-const GEMINI_MODEL_FALLBACK = 'gemini-3.5-flash-lite';
+const GEMINI_MODEL_FALLBACK = 'gemini-2.5-flash';
 
 let aiChatHistory = [];
 
@@ -3049,14 +3065,17 @@ async function callGemini(userMessage) {
 
     // Call via Apps Script proxy, try primary model first
     let data = await callGeminiProxy(requestBody, GEMINI_MODEL);
+    let firstError = '';
 
     if (!data || data.error) {
-        console.log(`${GEMINI_MODEL} 失敗，切換備援 ${GEMINI_MODEL_FALLBACK}`);
+        firstError = typeof data?.error === 'string' ? data.error : (data?.error?.message || 'Unknown error');
+        console.log(`${GEMINI_MODEL} 失敗(${firstError})，切換備援 ${GEMINI_MODEL_FALLBACK}`);
         data = await callGeminiProxy(requestBody, GEMINI_MODEL_FALLBACK);
     }
 
     if (!data || data.error) {
-        throw new Error(data?.error?.message || '呼叫 Gemini 失敗');
+        const secondError = typeof data?.error === 'string' ? data.error : (data?.error?.message || '');
+        throw new Error(firstError || secondError || '呼叫 Gemini 失敗');
     }
 
     const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '抱歉，我無法回答這個問題。';
