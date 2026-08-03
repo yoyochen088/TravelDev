@@ -207,9 +207,8 @@ async function reverseGeocode(lat, lng) {
 }
 
 // --- Settings (loaded from Apps Script) ---
-const CONFIG_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwgG_zUs5_7XSt2mgk8GbKCk3UIZ89WKiuR4mOEcCKctiLOV88YD7-8Qo6-4dORGGV9/exec'; // ← 部署後貼上
-
-let currentUser = null;
+const CONFIG_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzQcoVLDmpAtDc-M8WWac5zMgrNgbOO_Aoupthms1nCfFvhKjIP4AKO5F8EP2wT4AI-/exec';
+let currentUser = null;    
 
 function getUserPassword() {
     return localStorage.getItem('userPassword_' + currentUser) || '';
