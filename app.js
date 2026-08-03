@@ -211,20 +211,31 @@ const CONFIG_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwgG_zUs5_7XS
 
 let currentUser = null;
 
+function getUserPassword() {
+    return localStorage.getItem('userPassword_' + currentUser) || '';
+}
+
+function getAuthParams() {
+    return `&user=${encodeURIComponent(currentUser)}&password=${encodeURIComponent(getUserPassword())}`;
+}
+
 async function initUserSelect() {
     const saved = localStorage.getItem('currentUser');
     if (saved) {
         // Already has a saved user, try to load directly
-        try {
-            const config = JSON.parse(localStorage.getItem('userConfig_' + saved));
-            if (config) {
-                currentUser = saved;
-                applyUserConfig(config);
-                showMainApp();
-                loadData();
-                return;
-            }
-        } catch (e) {}
+        const savedPassword = localStorage.getItem('userPassword_' + saved);
+        if (savedPassword !== null) {
+            try {
+                const config = JSON.parse(localStorage.getItem('userConfig_' + saved));
+                if (config) {
+                    currentUser = saved;
+                    applyUserConfig(config);
+                    showMainApp();
+                    loadData();
+                    return;
+                }
+            } catch (e) {}
+        }
     }
     // Show user select screen
     await loadUserList();
@@ -251,13 +262,16 @@ async function loadUserList() {
 }
 
 async function selectUser(name) {
+    const password = prompt(`請輸入 ${name} 的密碼：`);
+    if (password === null) return; // User cancelled
+
     showLoading(true);
     try {
-        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getConfig&user=' + encodeURIComponent(name));
+        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getConfig&user=' + encodeURIComponent(name) + '&password=' + encodeURIComponent(password));
         const config = await res.json();
 
         if (config.error) {
-            alert('找不到該用戶設定：' + config.error);
+            alert('登入失敗：' + config.error);
             showLoading(false);
             return;
         }
@@ -265,6 +279,7 @@ async function selectUser(name) {
         // Save to localStorage
         currentUser = name;
         localStorage.setItem('currentUser', name);
+        localStorage.setItem('userPassword_' + name, password);
         localStorage.setItem('userConfig_' + name, JSON.stringify(config));
         localStorage.setItem('geminiApiKey', config.apiKey || '');
 
@@ -344,40 +359,120 @@ async function loadData() {
     showLoading(true);
 
     try {
-        // Fetch all sheets in parallel
-        const [scheduleRes, randomRes, foodRes] = await Promise.allSettled([
-            fetch(getSheetCsvUrl(sheetId, window.SHEET_NAME_SCHEDULE)),
-            fetch(getSheetCsvUrl(sheetId, window.SHEET_NAME_RANDOM)),
-            fetch(getSheetCsvUrl(sheetId, window.SHEET_NAME_FOOD))
-        ]);
+        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getAllData' + getAuthParams());
+        const data = await res.json();
 
-        // Parse schedule
-        if (scheduleRes.status === 'fulfilled' && scheduleRes.value.ok) {
-            scheduleData = parseScheduleCSV(await scheduleRes.value.text());
+        if (data.error) {
+            console.error('getAllData error:', data.error);
+            showLoading(false);
+            return;
         }
 
-        // Parse random places
-        if (randomRes.status === 'fulfilled' && randomRes.value.ok) {
-            randomPlaces = parseRandomCSV(await randomRes.value.text());
+        // Map API data to local variables
+        if (data.schedule) {
+            scheduleData = mapApiData(data.schedule, mapScheduleItem);
         }
-
-        // Parse food
-        if (foodRes.status === 'fulfilled' && foodRes.value.ok) {
-            foodList = parseFoodCSV(await foodRes.value.text());
+        if (data.places) {
+            randomPlaces = mapApiData(data.places, mapRandomPlace);
+        }
+        if (data.food) {
+            foodList = mapApiData(data.food, mapFoodItem);
+        }
+        if (data.packing) {
+            packingItems = mapApiData(data.packing, mapPackingItem);
+        }
+        if (data.segments) {
+            segments = mapApiData(data.segments, mapSegmentItem);
         }
 
         updateNowTab();
         updateTimeline();
         updateRandomList();
         updateFoodList();
-        loadPackingList();
+        renderPackingList();
     } catch (err) {
         console.error('載入資料失敗:', err);
     }
 
     showLoading(false);
-    await loadSegments();
     updateCurrentWeather();
+}
+
+// --- API Data Mapping ---
+function mapApiData(arr, mapFn) {
+    if (!Array.isArray(arr)) return [];
+    return arr.map(mapFn).filter(Boolean);
+}
+
+function mapScheduleItem(row) {
+    return {
+        date: row['日期'] || row['date'] || '',
+        startTime: row['開始時間'] || row['startTime'] || '',
+        endTime: row['結束時間'] || row['endTime'] || '',
+        place: row['地點'] || row['place'] || '',
+        address: row['地址'] || row['address'] || '',
+        notes: row['備註'] || row['notes'] || '',
+        _uuid: row._uuid || '',
+        _rowIndex: row._rowIndex
+    };
+}
+
+function mapRandomPlace(row) {
+    return {
+        place: row['地點'] || row['place'] || '',
+        address: row['地址'] || row['address'] || '',
+        type: row['類型'] || row['type'] || '',
+        notes: row['備註'] || row['notes'] || '',
+        city: row['城市'] || row['city'] || '',
+        _uuid: row._uuid || '',
+        _rowIndex: row._rowIndex
+    };
+}
+
+function mapFoodItem(row) {
+    return {
+        name: row['店名'] || row['name'] || '',
+        hours: row['營業時間'] || row['hours'] || '',
+        address: row['地址'] || row['address'] || '',
+        type: row['類型'] || row['type'] || '',
+        price: row['價位'] || row['price'] || '',
+        rating: row['評分'] || row['rating'] || '',
+        queue: row['排隊'] || row['queue'] || '',
+        recommend: row['推薦'] || row['recommend'] || '',
+        area: row['區域'] || row['area'] || '',
+        notes: row['備註'] || row['notes'] || '',
+        city: row['城市'] || row['city'] || '',
+        _uuid: row._uuid || '',
+        _rowIndex: row._rowIndex
+    };
+}
+
+function mapPackingItem(row, idx) {
+    return {
+        id: idx,
+        item: row['物品'] || row['item'] || '',
+        category: row['分類'] || row['category'] || '',
+        _uuid: row._uuid || '',
+        _rowIndex: row._rowIndex
+    };
+}
+
+function mapSegmentItem(row, idx) {
+    return {
+        idx,
+        name: row['名稱'] || row['name'] || '',
+        country: row['國家'] || row['country'] || '',
+        city: row['城市'] || row['city'] || '',
+        lat: parseFloat(row['緯度'] || row['lat']) || 0,
+        lng: parseFloat(row['經度'] || row['lng']) || 0,
+        startDate: toInputDate(row['開始日期'] || row['startDate'] || ''),
+        endDate: toInputDate(row['結束日期'] || row['endDate'] || ''),
+        hotelName: row['飯店名稱'] || row['hotelName'] || '',
+        hotelAddress: row['飯店地址'] || row['hotelAddress'] || '',
+        hotelPhone: row['飯店電話'] || row['hotelPhone'] || '',
+        _uuid: row._uuid || '',
+        _rowIndex: row._rowIndex
+    };
 }
 // --- CSV Parsing ---
 function parseCSVLine(line) {
@@ -406,6 +501,7 @@ function parseCSVLine(line) {
 }
 
 function parseScheduleCSV(csv) {
+    // DEPRECATED: kept as fallback, prefer mapApiData
     const lines = csv.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
 
@@ -424,6 +520,7 @@ function parseScheduleCSV(csv) {
 }
 
 function parseRandomCSV(csv) {
+    // DEPRECATED: kept as fallback, prefer mapApiData
     const lines = csv.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
 
@@ -434,12 +531,13 @@ function parseRandomCSV(csv) {
             address: cols[1] || '',
             type: cols[2] || '',
             notes: cols[3] || '',
-            city: cols[4] || ''  // 新增城市欄（第5欄）
+            city: cols[4] || ''
         };
     }).filter(item => item.place);
 }
 
 function parseFoodCSV(csv) {
+    // DEPRECATED: kept as fallback, prefer mapApiData
     const lines = csv.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
 
@@ -456,7 +554,7 @@ function parseFoodCSV(csv) {
             recommend: cols[7] || '',
             area: cols[8] || '',
             notes: cols[9] || '',
-            city: cols[10] || ''  // 新增城市欄（第11欄）
+            city: cols[10] || ''
         };
     }).filter(item => item.name);
 }
@@ -930,8 +1028,8 @@ async function refreshAll() {
     await processSyncQueue();
 
     try {
-        // Re-fetch user config from Apps Script
-        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getConfig&user=' + encodeURIComponent(currentUser));
+        // Re-fetch user config from Apps Script (with password)
+        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getConfig&user=' + encodeURIComponent(currentUser) + '&password=' + encodeURIComponent(getUserPassword()));
         const config = await res.json();
         if (!config.error) {
             localStorage.setItem('userConfig_' + currentUser, JSON.stringify(config));
@@ -944,38 +1042,34 @@ async function refreshAll() {
         console.log('重新取得設定失敗:', e);
     }
 
-    // Reload sheet data (without showing loading overlay)
-    const sheetId = window.SHEET_ID;
-    if (!sheetId) return;
-
+    // Reload all data via getAllData
     try {
-        const scheduleUrl = getSheetCsvUrl(sheetId, window.SHEET_NAME_SCHEDULE);
-        const scheduleRes = await fetch(scheduleUrl);
-        if (scheduleRes.ok) {
-            scheduleData = parseScheduleCSV(await scheduleRes.text());
+        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getAllData' + getAuthParams());
+        const data = await res.json();
+
+        if (!data.error) {
+            if (data.schedule) {
+                scheduleData = mapApiData(data.schedule, mapScheduleItem);
+            }
+            if (data.places) {
+                randomPlaces = mapApiData(data.places, mapRandomPlace);
+            }
+            if (data.food) {
+                foodList = mapApiData(data.food, mapFoodItem);
+            }
+            if (data.packing) {
+                packingItems = mapApiData(data.packing, mapPackingItem);
+            }
+            if (data.segments) {
+                segments = mapApiData(data.segments, mapSegmentItem);
+            }
         }
-
-        try {
-            const randomUrl = getSheetCsvUrl(sheetId, window.SHEET_NAME_RANDOM);
-            const randomRes = await fetch(randomUrl);
-            if (randomRes.ok) {
-                randomPlaces = parseRandomCSV(await randomRes.text());
-            }
-        } catch (e) {}
-
-        try {
-            const foodUrl = getSheetCsvUrl(sheetId, window.SHEET_NAME_FOOD);
-            const foodRes = await fetch(foodUrl);
-            if (foodRes.ok) {
-                foodList = parseFoodCSV(await foodRes.text());
-            }
-        } catch (e) {}
 
         updateNowTab();
         updateTimeline();
         updateRandomList();
         updateFoodList();
-        loadPackingList();
+        renderPackingList();
     } catch (err) {
         console.error('重新載入資料失敗:', err);
     }
@@ -1391,30 +1485,18 @@ function showPackingForm(item) {
 }
 
 async function loadPackingList() {
-    const sheetId = window.SHEET_ID;
+    // Data already loaded by loadData/getAllData, just render
     const container = $('#packing-list');
     if (!container) return;
-    if (!sheetId) {
-        container.innerHTML = '<p class="hint">未設定 Sheet</p>';
+    if (packingItems.length === 0) {
+        container.innerHTML = '<p class="hint">行李清單是空的</p>';
         return;
     }
-
-    try {
-        const url = getSheetCsvUrl(sheetId, '行李清單');
-        const res = await fetch(url);
-        if (!res.ok) {
-            container.innerHTML = '<p class="hint">未找到「行李清單」分頁</p>';
-            return;
-        }
-        const csv = await res.text();
-        packingItems = parsePackingCSV(csv);
-        renderPackingList();
-    } catch (e) {
-        container.innerHTML = '<p class="hint">無法載入行李清單</p>';
-    }
+    renderPackingList();
 }
 
 function parsePackingCSV(csv) {
+    // DEPRECATED: kept as fallback, prefer mapApiData
     const lines = csv.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
 
@@ -1479,12 +1561,15 @@ async function deletePackingItemConfirm(id) {
 
 async function savePackingItem(action, item, idx) {
     const sheetId = window.SHEET_ID;
+    const uuid = (action !== 'add' && packingItems[idx]) ? (packingItems[idx]._uuid || '') : '';
 
     const payload = {
         action: action === 'add' ? 'addPackingItem' :
                 action === 'update' ? 'updatePackingItem' : 'deletePackingItem',
         sheetId: sheetId,
-        rowIndex: idx,
+        user: currentUser,
+        password: getUserPassword(),
+        uuid: uuid,
         item: item
     };
 
@@ -1886,22 +1971,13 @@ let segments = [];
 let editingSegmentIndex = null;
 
 async function loadSegments() {
-    const sheetId = window.SHEET_ID;
-    if (!sheetId) return;
-
-    try {
-        const url = getSheetCsvUrl(sheetId, '行程段落');
-        const res = await fetch(url);
-        if (res.ok) {
-            const csv = await res.text();
-            segments = parseSegmentsCSV(csv);
-        }
-    } catch (e) {
-        console.log('行程段落讀取失敗:', e);
-    }
+    // Data already loaded by loadData/getAllData
+    // This function is kept for backward compatibility but is now a no-op
+    // Segments are loaded via getAllData in loadData()
 }
 
 function parseSegmentsCSV(csv) {
+    // DEPRECATED: kept as fallback, prefer mapApiData
     const lines = csv.split('\n').filter(l => l.trim());
     if (lines.length < 2) return [];
     return lines.slice(1).map((line, idx) => {
@@ -2102,9 +2178,14 @@ async function deleteSegmentConfirm(idx) {
 
 async function saveSegment(action, item, idx) {
     const sheetId = window.SHEET_ID;
+    const uuid = (action !== 'add' && segments[idx]) ? (segments[idx]._uuid || '') : '';
     const payload = {
         action: action === 'add' ? 'addSegment' : action === 'update' ? 'updateSegment' : 'deleteSegment',
-        sheetId, rowIndex: idx, item
+        sheetId,
+        user: currentUser,
+        password: getUserPassword(),
+        uuid: uuid,
+        item
     };
 
     try {
@@ -2427,13 +2508,16 @@ async function deleteScheduleItemConfirm(idx) {
 async function saveScheduleItem(action, item, idx) {
     const sheetId = window.SHEET_ID;
     const sheetName = window.SHEET_NAME_SCHEDULE;
+    const uuid = (action !== 'add' && scheduleData[idx]) ? (scheduleData[idx]._uuid || '') : '';
 
     const payload = {
         action: action === 'add' ? 'addScheduleItem' :
                 action === 'update' ? 'updateScheduleItem' : 'deleteScheduleItem',
         sheetId: sheetId,
         sheetName: sheetName,
-        rowIndex: idx,
+        user: currentUser,
+        password: getUserPassword(),
+        uuid: uuid,
         item: item
     };
 
@@ -2534,10 +2618,12 @@ async function processSyncQueue() {
     const remaining = [];
     for (const entry of queue) {
         try {
+            // Ensure payload has current auth info
+            const payload = { ...entry.payload, user: currentUser, password: getUserPassword() };
             const res = await fetch(CONFIG_SCRIPT_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain' },
-                body: JSON.stringify(entry.payload),
+                body: JSON.stringify(payload),
                 redirect: 'follow'
             });
             // If we get a response (even opaque), consider it success
@@ -2555,16 +2641,10 @@ async function processSyncQueue() {
 }
 
 
-// ==================== AI 助手 (Gemini 3.1 Flash Lite) ====================
+// ==================== AI 助手 (Gemini via Apps Script Proxy) ====================
 
 const GEMINI_MODEL = 'gemini-3.1-flash-lite';
 const GEMINI_MODEL_FALLBACK = 'gemini-3.5-flash-lite';
-
-function getGeminiEndpoint(model) {
-    const key = localStorage.getItem('geminiApiKey') || '';
-    const m = model || GEMINI_MODEL;
-    return `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${key}`;
-}
 
 let aiChatHistory = [];
 
@@ -2774,26 +2854,16 @@ async function callGeminiTranslate(text) {
         }
     };
 
-    let response = await fetch(getGeminiEndpoint(GEMINI_MODEL), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-    });
+    let data = await callGeminiProxy(requestBody, GEMINI_MODEL);
 
-    if (!response.ok) {
-        response = await fetch(getGeminiEndpoint(GEMINI_MODEL_FALLBACK), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
+    if (!data || data.error) {
+        data = await callGeminiProxy(requestBody, GEMINI_MODEL_FALLBACK);
     }
 
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+    if (!data || data.error) {
+        throw new Error(data?.error?.message || '翻譯失敗');
     }
 
-    const data = await response.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || '翻譯失敗';
 }
 
@@ -2978,28 +3048,18 @@ async function callGemini(userMessage) {
         }
     };
 
-    // Try primary model first, fallback on failure
-    let response = await fetch(getGeminiEndpoint(GEMINI_MODEL), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-    });
+    // Call via Apps Script proxy, try primary model first
+    let data = await callGeminiProxy(requestBody, GEMINI_MODEL);
 
-    if (!response.ok) {
-        console.log(`${GEMINI_MODEL} 失敗 (${response.status})，切換備援 ${GEMINI_MODEL_FALLBACK}`);
-        response = await fetch(getGeminiEndpoint(GEMINI_MODEL_FALLBACK), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
+    if (!data || data.error) {
+        console.log(`${GEMINI_MODEL} 失敗，切換備援 ${GEMINI_MODEL_FALLBACK}`);
+        data = await callGeminiProxy(requestBody, GEMINI_MODEL_FALLBACK);
     }
 
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+    if (!data || data.error) {
+        throw new Error(data?.error?.message || '呼叫 Gemini 失敗');
     }
 
-    const data = await response.json();
     const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || '抱歉，我無法回答這個問題。';
 
     // Add AI response to history
@@ -3011,6 +3071,32 @@ async function callGemini(userMessage) {
     }
 
     return aiResponse;
+}
+
+async function callGeminiProxy(requestBody, model) {
+    const apiKey = localStorage.getItem('geminiApiKey') || '';
+    const payload = {
+        action: 'geminiProxy',
+        user: currentUser,
+        password: getUserPassword(),
+        apiKey: apiKey,
+        model: model || GEMINI_MODEL,
+        requestBody: requestBody
+    };
+
+    const res = await fetch(CONFIG_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload),
+        redirect: 'follow'
+    });
+
+    if (!res.ok && res.status !== 0) {
+        const errData = await res.json().catch(() => ({}));
+        return { error: { message: errData.error || `HTTP ${res.status}` } };
+    }
+
+    return await res.json();
 }
 
 // --- Image Translation ---
@@ -3102,26 +3188,16 @@ async function callGeminiWithImage(base64, mimeType, mode) {
         }
     };
 
-    let response = await fetch(getGeminiEndpoint(GEMINI_MODEL), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-    });
+    let data = await callGeminiProxy(requestBody, GEMINI_MODEL);
 
-    if (!response.ok) {
+    if (!data || data.error) {
         console.log(`圖片處理：${GEMINI_MODEL} 失敗，切換備援 ${GEMINI_MODEL_FALLBACK}`);
-        response = await fetch(getGeminiEndpoint(GEMINI_MODEL_FALLBACK), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(requestBody)
-        });
+        data = await callGeminiProxy(requestBody, GEMINI_MODEL_FALLBACK);
     }
 
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || `HTTP ${response.status}`);
+    if (!data || data.error) {
+        throw new Error(data?.error?.message || '圖片處理失敗');
     }
 
-    const data = await response.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || '抱歉，無法辨識圖片內容。';
 }
