@@ -284,12 +284,14 @@ async function selectUser(name) {
 
         applyUserConfig(config);
         showMainApp();
+        showLoading(false);
+        // Load data in background (won't block UI)
         loadData();
     } catch (err) {
         alert('讀取設定失敗：' + err.message);
         console.error(err);
+        showLoading(false);
     }
-    showLoading(false);
 }
 
 function applyUserConfig(config) {
@@ -1191,10 +1193,12 @@ function initPullToRefresh() {
         if (!pulling) return;
         pulling = false;
         if (indicator.classList.contains('visible')) {
-            indicator.classList.remove('visible');
-            showLoading(true);
-            await refreshAll();
-            showLoading(false);
+            indicator.querySelector('span').textContent = '🔄 更新中...';
+            // Don't show full-screen loading, just update in background
+            refreshAll().then(() => {
+                indicator.classList.remove('visible');
+                indicator.querySelector('span').textContent = '↓ 下拉更新';
+            });
         }
     });
 }
