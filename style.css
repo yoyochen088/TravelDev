@@ -1184,6 +1184,10 @@ body {
     flex-wrap: wrap;
 }
 
+.schedule-edit-item.pending {
+    opacity: 0.6;
+}
+
 .schedule-edit-item .sched-info {
     flex: 1;
     min-width: 60%;
@@ -1237,6 +1241,7 @@ body {
     padding: 16px;
     margin-top: 12px;
     box-shadow: var(--shadow);
+    overflow: hidden;
 }
 
 .form-group {
@@ -1261,6 +1266,7 @@ body {
     max-width: 100%;
     overflow: hidden;
     box-sizing: border-box;
+    -webkit-appearance: none;
 }
 
 .form-group select {

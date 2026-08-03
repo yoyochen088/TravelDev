@@ -389,6 +389,20 @@ async function loadData() {
     updateCurrentWeather();
 }
 
+// Silent background refresh (no loading overlay)
+async function silentLoadData() {
+    try {
+        const res = await fetch(CONFIG_SCRIPT_URL + '?action=getAllData' + getAuthParams());
+        const data = await res.json();
+        if (!data.error) {
+            localStorage.setItem('cachedAllData', JSON.stringify(data));
+            applyAllData(data);
+        }
+    } catch (e) {
+        console.log('背景更新失敗:', e);
+    }
+}
+
 function applyAllData(data) {
     if (data.schedule) {
         scheduleData = mapApiData(data.schedule, mapScheduleItem);
@@ -2482,14 +2496,16 @@ function renderScheduleEditList() {
     }
 
     container.innerHTML = daySchedule.map(item => `
-        <div class="schedule-edit-item">
+        <div class="schedule-edit-item${item._pending ? ' pending' : ''}">
             <div class="sched-info">
                 <div class="sched-time">${item.startTime} - ${item.endTime}</div>
                 <div class="sched-place">${item.place}</div>
             </div>
             <div class="sched-actions">
+                ${item._pending ? '<span class="hint">同步中...</span>' : `
                 <button class="sched-action-btn edit" onclick="editScheduleItem(${item._idx})">✏️</button>
                 <button class="sched-action-btn delete" onclick="deleteScheduleItemConfirm(${item._idx})">🗑️</button>
+                `}
             </div>
         </div>
     `).join('');
@@ -2558,7 +2574,17 @@ async function saveScheduleItem(action, item, idx) {
 
         // Update local data
         if (action === 'add') {
+            // Mark as pending until loadData refreshes with real uuid
+            item._pending = true;
+            item._uuid = '';
             scheduleData.push(item);
+            renderScheduleEditList();
+            updateNowTab();
+            updateTimeline();
+            alert('✅ 已儲存');
+            // Background refresh to get real uuid
+            silentLoadData();
+            return;
         } else if (action === 'update') {
             scheduleData[idx] = { ...scheduleData[idx], ...item };
         } else if (action === 'delete') {
@@ -2577,6 +2603,8 @@ async function saveScheduleItem(action, item, idx) {
         
         // Still update local data for immediate UI
         if (action === 'add') {
+            item._pending = true;
+            item._uuid = '';
             scheduleData.push(item);
         } else if (action === 'update') {
             scheduleData[idx] = { ...scheduleData[idx], ...item };
@@ -3092,25 +3120,20 @@ async function callGemini(userMessage) {
 
 async function callGeminiProxy(requestBody, model) {
     const apiKey = localStorage.getItem('geminiApiKey') || '';
-    const payload = {
-        action: 'geminiProxy',
-        user: currentUser,
-        password: getUserPassword(),
-        apiKey: apiKey,
-        model: model || GEMINI_MODEL,
-        requestBody: requestBody
-    };
+    if (!apiKey) throw new Error('未設定 API Key');
 
-    const res = await fetch(CONFIG_SCRIPT_URL, {
+    const m = model || GEMINI_MODEL;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+
+    const res = await fetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload),
-        redirect: 'follow'
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
     });
 
-    if (!res.ok && res.status !== 0) {
+    if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        return { error: { message: errData.error || `HTTP ${res.status}` } };
+        return { error: { message: errData.error?.message || `HTTP ${res.status}` } };
     }
 
     return await res.json();
