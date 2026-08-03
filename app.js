@@ -397,6 +397,9 @@ async function silentLoadData() {
         if (!data.error) {
             localStorage.setItem('cachedAllData', JSON.stringify(data));
             applyAllData(data);
+            // Also re-render schedule edit list if it's open
+            const schedList = $('#schedule-edit-list');
+            if (schedList) renderScheduleEditList();
         }
     } catch (e) {
         console.log('背景更新失敗:', e);
@@ -2590,6 +2593,15 @@ async function saveScheduleItem(action, item, idx) {
         } else if (action === 'delete') {
             scheduleData.splice(idx, 1);
         }
+
+        // Update local cache
+        try {
+            const cached = JSON.parse(localStorage.getItem('cachedAllData') || '{}');
+            if (cached.schedule) {
+                cached.schedule = scheduleData;
+                localStorage.setItem('cachedAllData', JSON.stringify(cached));
+            }
+        } catch (e) {}
 
         renderScheduleEditList();
         updateNowTab();
