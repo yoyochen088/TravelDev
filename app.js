@@ -2578,7 +2578,6 @@ async function saveScheduleItem(action, item, idx) {
     renderScheduleEditList();
     updateNowTab();
     updateTimeline();
-    alert(action === 'delete' ? '✅ 已刪除' : '✅ 已儲存');
 
     // Write to server in background (don't await)
     fetch(CONFIG_SCRIPT_URL, {
@@ -2620,16 +2619,16 @@ function getSyncQueue() {
 
 function showSyncStatus() {
     const el = $('#sync-status');
-    const clearBtn = $('#clear-sync-queue');
+    const actionsEl = $('#sync-actions');
     if (!el) return;
     const queue = getSyncQueue();
     if (queue.length > 0) {
         el.style.display = 'block';
         el.textContent = `⚠️ ${queue.length} 筆待同步`;
-        if (clearBtn) clearBtn.style.display = 'inline-block';
+        if (actionsEl) actionsEl.style.display = 'block';
     } else {
         el.style.display = 'none';
-        if (clearBtn) clearBtn.style.display = 'none';
+        if (actionsEl) actionsEl.style.display = 'none';
     }
 }
 
@@ -2638,6 +2637,24 @@ function clearSyncQueue() {
     localStorage.setItem('syncQueue', '[]');
     showSyncStatus();
     alert('✅ 已清除');
+}
+
+async function retrySyncQueue() {
+    const queue = getSyncQueue();
+    if (queue.length === 0) {
+        alert('沒有待同步的項目');
+        return;
+    }
+    alert(`開始同步 ${queue.length} 筆...`);
+    await processSyncQueue();
+    const remaining = getSyncQueue();
+    if (remaining.length === 0) {
+        alert('✅ 全部同步成功！');
+        silentLoadData();
+    } else {
+        alert(`⚠️ 還有 ${remaining.length} 筆同步失敗`);
+    }
+    showSyncStatus();
 }
 
 async function processSyncQueue() {
