@@ -2583,30 +2583,42 @@ async function saveScheduleItem(action, item, idx) {
     updateNowTab();
     updateTimeline();
 
-    // Write to server in background (don't await)
-    fetch(CONFIG_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify(payload),
-        redirect: 'follow'
-    }).then(async res => {
-        let result = {};
-        try { result = await res.json(); } catch (e) { result = { success: true }; }
-        if (result.error) {
-            console.error('背景寫入失敗:', result.error);
+    // Write to server in background (queued to prevent concurrent delete issues)
+    queueServerWrite(payload, action);
+}
+
+// Ensure server writes execute one at a time (especially for deletes)
+let _writeQueue = Promise.resolve();
+
+function queueServerWrite(payload, action) {
+    _writeQueue = _writeQueue.then(() => {
+        return fetch(CONFIG_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(payload),
+            redirect: 'follow'
+        }).then(async res => {
+            let result = {};
+            try { result = await res.json(); } catch (e) { result = { success: true }; }
+            if (result.error) {
+                console.error('背景寫入失敗:', result.error);
+                addToSyncQueue(payload);
+                showSyncStatus();
+                alert('⚠️ 寫入 Sheet 失敗：' + result.error + '\n資料已暫存');
+            } else if (action === 'delete') {
+                // After delete, refresh to get correct uuid mapping
+                return silentLoadData();
+            }
+            // Refresh to get real uuid for new items
+            if (action === 'add') {
+                return silentLoadData();
+            }
+        }).catch(err => {
+            console.error('背景寫入失敗:', err);
             addToSyncQueue(payload);
             showSyncStatus();
-            alert('⚠️ 寫入 Sheet 失敗：' + result.error + '\n資料已暫存，下拉更新時會重試');
-        }
-        // Refresh to get real uuid for new items
-        if (action === 'add') {
-            silentLoadData();
-        }
-    }).catch(err => {
-        console.error('背景寫入失敗:', err);
-        addToSyncQueue(payload);
-        showSyncStatus();
-        alert('⚠️ 網路異常，資料已暫存本地\n下拉更新時會重試');
+            alert('⚠️ 網路異常，資料已暫存本地');
+        });
     });
 }
 
