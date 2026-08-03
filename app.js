@@ -2555,81 +2555,56 @@ async function saveScheduleItem(action, item, idx) {
         item: item
     };
 
-    try {
-        const res = await fetch(CONFIG_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify(payload),
-            redirect: 'follow'
-        });
-
-        // Try to read the response
-        let result = {};
-        try { result = await res.json(); } catch (e) {
-            // If can't parse JSON but got a response, assume success
-            result = { success: true };
-        }
-
-        // Check for explicit error from Apps Script
-        if (result.error) {
-            throw new Error(result.error);
-        }
-
-        // Update local data
-        if (action === 'add') {
-            // Mark as pending until loadData refreshes with real uuid
-            item._pending = true;
-            item._uuid = '';
-            scheduleData.push(item);
-            renderScheduleEditList();
-            updateNowTab();
-            updateTimeline();
-            alert('✅ 已儲存');
-            // Background refresh to get real uuid
-            silentLoadData();
-            return;
-        } else if (action === 'update') {
-            scheduleData[idx] = { ...scheduleData[idx], ...item };
-        } else if (action === 'delete') {
-            scheduleData.splice(idx, 1);
-        }
-
-        // Update local cache
-        try {
-            const cached = JSON.parse(localStorage.getItem('cachedAllData') || '{}');
-            if (cached.schedule) {
-                cached.schedule = scheduleData;
-                localStorage.setItem('cachedAllData', JSON.stringify(cached));
-            }
-        } catch (e) {}
-
-        renderScheduleEditList();
-        updateNowTab();
-        updateTimeline();
-        alert(action === 'delete' ? '✅ 已刪除' : '✅ 已儲存');
-
-    } catch (err) {
-        console.error('儲存失敗，加入同步佇列:', err);
-        // Offline / failed: queue for later
-        addToSyncQueue(payload);
-        
-        // Still update local data for immediate UI
-        if (action === 'add') {
-            item._pending = true;
-            item._uuid = '';
-            scheduleData.push(item);
-        } else if (action === 'update') {
-            scheduleData[idx] = { ...scheduleData[idx], ...item };
-        } else if (action === 'delete') {
-            scheduleData.splice(idx, 1);
-        }
-
-        renderScheduleEditList();
-        updateNowTab();
-        updateTimeline();
-        alert(`⚠️ 儲存失敗：${err.message}\n已暫存本地`);
-        showSyncStatus();
+    // Optimistic update: update local immediately, write to server in background
+    if (action === 'add') {
+        item._pending = true;
+        item._uuid = '';
+        scheduleData.push(item);
+    } else if (action === 'update') {
+        scheduleData[idx] = { ...scheduleData[idx], ...item };
+    } else if (action === 'delete') {
+        scheduleData.splice(idx, 1);
     }
+
+    // Update local cache
+    try {
+        const cached = JSON.parse(localStorage.getItem('cachedAllData') || '{}');
+        if (cached.schedule) {
+            cached.schedule = scheduleData;
+            localStorage.setItem('cachedAllData', JSON.stringify(cached));
+        }
+    } catch (e) {}
+
+    renderScheduleEditList();
+    updateNowTab();
+    updateTimeline();
+    alert(action === 'delete' ? '✅ 已刪除' : '✅ 已儲存');
+
+    // Write to server in background (don't await)
+    fetch(CONFIG_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload),
+        redirect: 'follow'
+    }).then(async res => {
+        let result = {};
+        try { result = await res.json(); } catch (e) { result = { success: true }; }
+        if (result.error) {
+            console.error('背景寫入失敗:', result.error);
+            addToSyncQueue(payload);
+            showSyncStatus();
+            alert('⚠️ 寫入 Sheet 失敗：' + result.error + '\n資料已暫存，下拉更新時會重試');
+        }
+        // Refresh to get real uuid for new items
+        if (action === 'add') {
+            silentLoadData();
+        }
+    }).catch(err => {
+        console.error('背景寫入失敗:', err);
+        addToSyncQueue(payload);
+        showSyncStatus();
+        alert('⚠️ 網路異常，資料已暫存本地\n下拉更新時會重試');
+    });
 }
 
 // --- Offline Sync Queue ---
