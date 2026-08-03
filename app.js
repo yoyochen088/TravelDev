@@ -2529,24 +2529,23 @@ async function saveScheduleItem(action, item, idx) {
             redirect: 'follow'
         });
 
-        // Apps Script returns 200 on success after redirect
-        // If we get any 2xx response, treat as success
-        if (!res.ok && res.status !== 0) {
-            let errMsg = `HTTP ${res.status}`;
-            try { const d = await res.json(); errMsg = d.error || errMsg; } catch (e) {}
-            throw new Error(errMsg);
+        // Try to read the response
+        let result = {};
+        try { result = await res.json(); } catch (e) {
+            // If can't parse JSON but got a response, assume success
+            result = { success: true };
         }
 
-        // Try to read response, but don't fail if we can't
-        let result = { success: true };
-        try { result = await res.json(); } catch (e) {}
-        if (result.error) throw new Error(result.error);
+        // Check for explicit error from Apps Script
+        if (result.error) {
+            throw new Error(result.error);
+        }
 
         // Update local data
         if (action === 'add') {
             scheduleData.push(item);
         } else if (action === 'update') {
-            scheduleData[idx] = item;
+            scheduleData[idx] = { ...scheduleData[idx], ...item };
         } else if (action === 'delete') {
             scheduleData.splice(idx, 1);
         }
@@ -2565,7 +2564,7 @@ async function saveScheduleItem(action, item, idx) {
         if (action === 'add') {
             scheduleData.push(item);
         } else if (action === 'update') {
-            scheduleData[idx] = item;
+            scheduleData[idx] = { ...scheduleData[idx], ...item };
         } else if (action === 'delete') {
             scheduleData.splice(idx, 1);
         }
@@ -2573,7 +2572,7 @@ async function saveScheduleItem(action, item, idx) {
         renderScheduleEditList();
         updateNowTab();
         updateTimeline();
-        alert('⚠️ 已暫存本地（網路恢復後將自動同步）');
+        alert(`⚠️ 儲存失敗：${err.message}\n已暫存本地`);
         showSyncStatus();
     }
 }
