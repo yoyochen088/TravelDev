@@ -398,8 +398,23 @@ async function silentLoadData() {
         const data = await res.json();
         if (!data.error) {
             localStorage.setItem('cachedAllData', JSON.stringify(data));
+            
+            // Preserve pending items that aren't in the API response yet
+            const pendingSchedule = scheduleData.filter(item => item._pending);
+            
             applyAllData(data);
-            // Also re-render schedule edit list if it's open
+            
+            // If there are still pending items not reflected in API, re-add them
+            if (pendingSchedule.length > 0) {
+                const newPlaces = scheduleData.map(s => s.place);
+                pendingSchedule.forEach(p => {
+                    if (!newPlaces.includes(p.place)) {
+                        scheduleData.push(p);
+                    }
+                });
+            }
+            
+            // Re-render schedule edit list if it's open
             const schedList = $('#schedule-edit-list');
             if (schedList) renderScheduleEditList();
         }
