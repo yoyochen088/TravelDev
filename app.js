@@ -1,6 +1,7 @@
 // ==================== 旅遊助手 PWA ====================
 
 // --- State ---
+const APP_VERSION = 'v2-63';
 let scheduleData = [];
 let randomPlaces = [];
 let foodList = [];
@@ -22,6 +23,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initAI();
     initPullToRefresh();
     registerServiceWorker();
+    // Display version
+    const versionEl = document.getElementById('app-version');
+    if (versionEl) versionEl.textContent = '版本 ' + APP_VERSION;
     // User select & data loading
     initUserSelect();
 });
@@ -96,6 +100,10 @@ function initSubpage(page) {
         case 'packing':
             initPackingList();
             renderPackingList();
+            break;
+        case 'shopping':
+            initShoppingList();
+            renderShoppingList();
             break;
         case 'emergency':
             initEmergencyFromSegments();
@@ -399,24 +407,41 @@ async function silentLoadData() {
         if (!data.error) {
             localStorage.setItem('cachedAllData', JSON.stringify(data));
             
-            // Preserve pending items that aren't in the API response yet
+            // Preserve pending items
             const pendingSchedule = scheduleData.filter(item => item._pending);
+            const pendingPacking = packingItems.filter(item => item._pending);
+            const pendingShopping = shoppingItems.filter(item => item._pending);
             
             applyAllData(data);
             
-            // If there are still pending items not reflected in API, re-add them
+            // Re-add pending items if not yet reflected in API
             if (pendingSchedule.length > 0) {
-                const newPlaces = scheduleData.map(s => s.place);
                 pendingSchedule.forEach(p => {
-                    if (!newPlaces.includes(p.place)) {
-                        scheduleData.push(p);
-                    }
+                    const exists = scheduleData.some(s => s.place === p.place && s.date === p.date && s.startTime === p.startTime);
+                    if (!exists) scheduleData.push(p);
+                    else p._pending = false;
+                });
+            }
+            if (pendingPacking.length > 0) {
+                pendingPacking.forEach(p => {
+                    const exists = packingItems.some(s => s.item === p.item);
+                    if (!exists) packingItems.push(p);
+                });
+            }
+            if (pendingShopping.length > 0) {
+                pendingShopping.forEach(p => {
+                    const exists = shoppingItems.some(s => s.item === p.item);
+                    if (!exists) shoppingItems.push(p);
                 });
             }
             
-            // Re-render schedule edit list if it's open
+            // Re-render lists if open
             const schedList = $('#schedule-edit-list');
             if (schedList) renderScheduleEditList();
+            const packList = $('#packing-list');
+            if (packList) renderPackingList();
+            const shopList = $('#shopping-list');
+            if (shopList) renderShoppingList();
         }
     } catch (e) {
         console.log('背景更新失敗:', e);
@@ -438,6 +463,9 @@ function applyAllData(data) {
     }
     if (data.segments) {
         segments = mapApiData(data.segments, mapSegmentItem);
+    }
+    if (data.shopping) {
+        shoppingItems = mapApiData(data.shopping, mapPackingItem);
     }
 
     updateNowTab();
@@ -1157,20 +1185,10 @@ function registerServiceWorker() {
         navigator.serviceWorker.register('sw.js')
             .then(reg => {
                 console.log('SW registered:', reg.scope);
-                // Check for updates and auto-reload
-                reg.addEventListener('updatefound', () => {
-                    const newWorker = reg.installing;
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'activated' && navigator.serviceWorker.controller) {
-                            // New SW activated, reload to get new content
-                            window.location.reload();
-                        }
-                    });
-                });
             })
             .catch(err => console.log('SW registration failed:', err));
 
-        // Also detect controller change (when skipWaiting + claim takes effect)
+        // Auto-reload when new SW takes control
         navigator.serviceWorker.addEventListener('controllerchange', () => {
             window.location.reload();
         });
@@ -1480,59 +1498,419 @@ function initEmergency() {
 let packingItems = [];
 let editingPackingIndex = null;
 
+let packingBatchItems = []; // Temp batch for multiple add
+
 function initPackingList() {
     loadPackingList();
+    initSyncPackingChecks();
+    initConfirmDeletePacking();
 
-    // Add button
+    // Add button - add a new row each time
     const addBtn = $('#add-packing-btn');
     if (addBtn) {
         addBtn.addEventListener('click', () => {
-            editingPackingIndex = null;
-            showPackingForm(null);
+            $('#packing-form').style.display = 'block';
+            // Save current inputs before adding new row
+            saveCurrentBatchInputs('packing');
+            packingBatchItems.push({ item: '', category: '' });
+            renderPackingBatchInputs();
         });
     }
 
-    // Cancel
-    const cancelBtn = $('#packing-cancel');
-    if (cancelBtn) {
-        cancelBtn.addEventListener('click', () => {
-            $('#packing-form').style.display = 'none';
-        });
-    }
-
-    // Save
+    // Save all
     const saveBtn = $('#packing-save');
     if (saveBtn) {
         let saving = false;
         saveBtn.addEventListener('click', async () => {
             if (saving) return;
-            saving = true;
-            saveBtn.disabled = true;
 
-            const item = {
-                item: $('#packing-item-name').value.trim(),
-                category: $('#packing-item-category').value.trim()
-            };
+            // Collect all filled inputs
+            const inputs = $$('#packing-batch-list .batch-input-row');
+            const items = [];
+            inputs.forEach(row => {
+                const name = row.querySelector('.batch-name').value.trim();
+                const cat = row.querySelector('.batch-cat').value.trim();
+                if (name) items.push({ item: name, category: cat });
+            });
 
-            if (!item.item) {
-                alert('請填寫物品名稱');
-                saving = false;
-                saveBtn.disabled = false;
+            if (items.length === 0) {
+                alert('請至少填寫一個物品');
                 return;
             }
 
-            await savePackingItem(editingPackingIndex !== null ? 'update' : 'add', item, editingPackingIndex);
+            saving = true;
+            saveBtn.disabled = true;
+            saveBtn.textContent = '送出中...';
+
+            await batchSavePackingItems(items);
+
             $('#packing-form').style.display = 'none';
+            packingBatchItems = [];
             saving = false;
             saveBtn.disabled = false;
+            saveBtn.textContent = '全部送出';
         });
     }
 }
 
-function showPackingForm(item) {
-    $('#packing-form').style.display = 'block';
-    $('#packing-item-name').value = item ? item.item : '';
-    $('#packing-item-category').value = item ? item.category : '';
+// Save current input values back to batch array before re-rendering
+function saveCurrentBatchInputs(type) {
+    const containerId = type === 'packing' ? '#packing-batch-list' : '#shopping-batch-list';
+    const batchArr = type === 'packing' ? packingBatchItems : shoppingBatchItems;
+    const container = $(containerId);
+    if (!container) return;
+    const rows = container.querySelectorAll('.batch-input-row');
+    rows.forEach((row, idx) => {
+        if (batchArr[idx]) {
+            batchArr[idx].item = row.querySelector('.batch-name')?.value || '';
+            batchArr[idx].category = row.querySelector('.batch-cat')?.value || '';
+        }
+    });
+}
+
+function renderPackingBatchInputs() {
+    const container = $('#packing-batch-list');
+    if (!container) return;
+    container.innerHTML = packingBatchItems.map((item, idx) => `
+        <div class="batch-input-row form-row" style="margin-bottom:8px;">
+            <div class="form-group" style="flex:2;">
+                <input type="text" class="batch-name" placeholder="物品名稱" value="${item.item || ''}">
+            </div>
+            <div class="form-group" style="flex:1;">
+                <input type="text" class="batch-cat" placeholder="分類" value="${item.category || ''}">
+            </div>
+        </div>
+    `).join('');
+    const lastInput = container.querySelector('.batch-input-row:last-child .batch-name');
+    if (lastInput) lastInput.focus();
+}
+
+function removePackingBatchItem(idx) {
+    packingBatchItems.splice(idx, 1);
+    renderPackingBatch();
+}
+
+async function batchSavePackingItems(items) {
+    const sheetId = window.SHEET_ID;
+
+    // Optimistic update
+    items.forEach(item => {
+        packingItems.push({ id: packingItems.length, item: item.item, category: item.category, _pending: true });
+    });
+    renderPackingList();
+
+    // Background batch write
+    const payload = {
+        action: 'batchAddPackingItems',
+        sheetId,
+        user: currentUser,
+        password: getUserPassword(),
+        items: items
+    };
+
+    queueServerWrite(payload, 'add');
+}
+
+function initSyncPackingChecks() {
+    const btn = $('#sync-packing-checks');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = '同步中...';
+            const checked = JSON.parse(localStorage.getItem('packingChecked') || '[]');
+            const payload = {
+                action: 'syncPackingChecks',
+                sheetId: window.SHEET_ID,
+                user: currentUser,
+                password: getUserPassword(),
+                checkedIndexes: checked
+            };
+            queueServerWrite(payload, 'sync');
+            btn.textContent = '✅ 已同步';
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = '� 回存';
+            }, 2000);
+        });
+    }
+}
+
+// ==================== 購物清單 ====================
+
+let shoppingItems = [];
+let shoppingBatchItems = [];
+
+function initShoppingList() {
+    loadShoppingList();
+    initSyncShoppingChecks();
+    initConfirmDeleteShopping();
+
+    const addBtn = $('#add-shopping-btn');
+    if (addBtn) {
+        addBtn.addEventListener('click', () => {
+            $('#shopping-form').style.display = 'block';
+            saveCurrentBatchInputs('shopping');
+            shoppingBatchItems.push({ item: '', category: '' });
+            renderShoppingBatchInputs();
+        });
+    }
+
+    const saveBtn = $('#shopping-save');
+    if (saveBtn) {
+        let saving = false;
+        saveBtn.addEventListener('click', async () => {
+            if (saving) return;
+
+            const inputs = $$('#shopping-batch-list .batch-input-row');
+            const items = [];
+            inputs.forEach(row => {
+                const name = row.querySelector('.batch-name').value.trim();
+                const cat = row.querySelector('.batch-cat').value.trim();
+                if (name) items.push({ item: name, category: cat });
+            });
+
+            if (items.length === 0) {
+                alert('請至少填寫一個物品');
+                return;
+            }
+
+            saving = true;
+            saveBtn.disabled = true;
+            saveBtn.textContent = '送出中...';
+
+            await batchSaveShoppingItems(items);
+
+            $('#shopping-form').style.display = 'none';
+            shoppingBatchItems = [];
+            saving = false;
+            saveBtn.disabled = false;
+            saveBtn.textContent = '全部送出';
+        });
+    }
+}
+
+function renderShoppingBatchInputs() {
+    const container = $('#shopping-batch-list');
+    if (!container) return;
+    container.innerHTML = shoppingBatchItems.map((item, idx) => `
+        <div class="batch-input-row form-row" style="margin-bottom:8px;">
+            <div class="form-group" style="flex:2;">
+                <input type="text" class="batch-name" placeholder="物品名稱" value="${item.item || ''}">
+            </div>
+            <div class="form-group" style="flex:1;">
+                <input type="text" class="batch-cat" placeholder="分類" value="${item.category || ''}">
+            </div>
+        </div>
+    `).join('');
+    const lastInput = container.querySelector('.batch-input-row:last-child .batch-name');
+    if (lastInput) lastInput.focus();
+}
+
+function removeShoppingBatchItem(idx) {
+    shoppingBatchItems.splice(idx, 1);
+    renderShoppingBatch();
+}
+
+function loadShoppingList() {
+    const container = $('#shopping-list');
+    if (!container) return;
+    if (shoppingItems.length === 0) {
+        container.innerHTML = '<p class="hint">購物清單是空的</p>';
+        return;
+    }
+    renderShoppingList();
+}
+
+function renderShoppingList() {
+    const container = $('#shopping-list');
+    if (!container) return;
+    const checked = JSON.parse(localStorage.getItem('shoppingChecked') || '[]');
+    const syncBtn = $('#sync-shopping-checks');
+    const deleteBtn = $('#confirm-delete-shopping');
+
+    if (shoppingItems.length === 0) {
+        container.innerHTML = '<p class="hint">購物清單是空的</p>';
+        updateShoppingProgress(0, 0);
+        if (syncBtn) syncBtn.style.display = 'none';
+        if (deleteBtn) deleteBtn.style.display = 'none';
+        return;
+    }
+
+    if (syncBtn) syncBtn.style.display = 'block';
+
+    container.innerHTML = shoppingItems.map((item, idx) => {
+        const isChecked = checked.includes(idx);
+        const isMarkedDelete = shoppingDeleteMarked.includes(idx);
+        const isEditing = shoppingEditingIdx === idx;
+
+        if (isEditing) {
+            return `
+                <div class="packing-item editing" style="flex-wrap:wrap;">
+                    <div class="form-group" style="flex:2;margin:0;"><input type="text" class="edit-name" value="${item.item}" placeholder="物品名稱"></div>
+                    <div class="form-group" style="flex:1;margin:0;"><input type="text" class="edit-cat" value="${item.category || ''}" placeholder="分類"></div>
+                    <button class="sched-action-btn edit" onclick="event.stopPropagation();confirmEditShopping(${idx})">✓</button>
+                </div>
+            `;
+        }
+
+        return `
+            <div class="packing-item ${isChecked ? 'checked' : ''} ${isMarkedDelete ? 'marked-delete' : ''}" onclick="toggleShopping(${idx})">
+                <div class="check">${isChecked ? '✓' : ''}</div>
+                <span class="packing-name">${item.item}</span>
+                ${item.category ? `<span class="place-type">${item.category}</span>` : ''}
+                <button class="sched-action-btn edit" onclick="event.stopPropagation();startEditShopping(${idx})">✏️</button>
+                <button class="sched-action-btn delete packing-delete-btn" onclick="event.stopPropagation();markShoppingDelete(${idx})">${isMarkedDelete ? '↩' : '🗑️'}</button>
+            </div>
+        `;
+    }).join('');
+
+    updateShoppingProgress(checked.filter(id => id < shoppingItems.length).length, shoppingItems.length);
+
+    if (deleteBtn) {
+        deleteBtn.style.display = shoppingDeleteMarked.length > 0 ? 'block' : 'none';
+        deleteBtn.textContent = `🗑️ 確認刪除 ${shoppingDeleteMarked.length} 項`;
+    }
+}
+
+let shoppingDeleteMarked = [];
+let shoppingEditingIdx = null;
+
+function markShoppingDelete(idx) {
+    if (shoppingDeleteMarked.includes(idx)) {
+        shoppingDeleteMarked = shoppingDeleteMarked.filter(i => i !== idx);
+    } else {
+        shoppingDeleteMarked.push(idx);
+    }
+    renderShoppingList();
+}
+
+function startEditShopping(idx) {
+    shoppingEditingIdx = idx;
+    renderShoppingList();
+}
+
+function confirmEditShopping(idx) {
+    const container = $('#shopping-list');
+    const rows = container.querySelectorAll('.packing-item');
+    const row = rows[idx];
+    const name = row.querySelector('.edit-name').value.trim();
+    const cat = row.querySelector('.edit-cat').value.trim();
+
+    if (!name) {
+        alert('物品名稱不能為空');
+        return;
+    }
+
+    shoppingItems[idx].item = name;
+    shoppingItems[idx].category = cat;
+    shoppingEditingIdx = null;
+    renderShoppingList();
+
+    // Background update
+    const uuid = shoppingItems[idx]._uuid || '';
+    if (uuid) {
+        const payload = {
+            action: 'updateShoppingItem',
+            sheetId: window.SHEET_ID,
+            user: currentUser,
+            password: getUserPassword(),
+            uuid: uuid,
+            item: { item: name, category: cat }
+        };
+        queueServerWrite(payload, 'update');
+    }
+}
+
+function initConfirmDeleteShopping() {
+    const btn = $('#confirm-delete-shopping');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            if (shoppingDeleteMarked.length === 0) return;
+
+            btn.disabled = true;
+            btn.textContent = '刪除中...';
+
+            const sorted = [...shoppingDeleteMarked].sort((a, b) => b - a);
+            sorted.forEach(idx => shoppingItems.splice(idx, 1));
+            shoppingItems.forEach((p, i) => p.id = i);
+            shoppingDeleteMarked = [];
+            localStorage.setItem('shoppingChecked', '[]');
+            renderShoppingList();
+
+            const payload = {
+                action: 'batchDeleteShoppingItems',
+                sheetId: window.SHEET_ID,
+                user: currentUser,
+                password: getUserPassword(),
+                indexes: sorted
+            };
+            queueServerWrite(payload, 'delete');
+
+            btn.disabled = false;
+            btn.textContent = '🗑️ 確認刪除已選項目';
+        });
+    }
+}
+
+function toggleShopping(id) {
+    let checked = JSON.parse(localStorage.getItem('shoppingChecked') || '[]');
+    if (checked.includes(id)) {
+        checked = checked.filter(i => i !== id);
+    } else {
+        checked.push(id);
+    }
+    localStorage.setItem('shoppingChecked', JSON.stringify(checked));
+    renderShoppingList();
+}
+
+function updateShoppingProgress(done, total) {
+    const el = $('#shopping-progress-text');
+    if (!el) return;
+    el.textContent = `${done}/${total}`;
+    const pct = total > 0 ? (done / total * 100) : 0;
+    const bar = $('#shopping-progress-bar');
+    if (bar) bar.style.width = `${pct}%`;
+}
+
+async function batchSaveShoppingItems(items) {
+    const sheetId = window.SHEET_ID;
+    items.forEach(item => {
+        shoppingItems.push({ id: shoppingItems.length, item: item.item, category: item.category, _pending: true });
+    });
+    renderShoppingList();
+
+    const payload = {
+        action: 'batchAddShoppingItems',
+        sheetId,
+        user: currentUser,
+        password: getUserPassword(),
+        items: items
+    };
+    queueServerWrite(payload, 'add');
+}
+
+function initSyncShoppingChecks() {
+    const btn = $('#sync-shopping-checks');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            btn.disabled = true;
+            btn.textContent = '同步中...';
+            const checked = JSON.parse(localStorage.getItem('shoppingChecked') || '[]');
+            const payload = {
+                action: 'syncShoppingChecks',
+                sheetId: window.SHEET_ID,
+                user: currentUser,
+                password: getUserPassword(),
+                checkedIndexes: checked
+            };
+            queueServerWrite(payload, 'sync');
+            btn.textContent = '✅ 已同步';
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = '� 回存';
+            }, 2000);
+        });
+    }
 }
 
 async function loadPackingList() {
@@ -1565,27 +1943,133 @@ function renderPackingList() {
     const container = $('#packing-list');
     if (!container) return;
     const checked = JSON.parse(localStorage.getItem('packingChecked') || '[]');
+    const syncBtn = $('#sync-packing-checks');
+    const deleteBtn = $('#confirm-delete-packing');
 
     if (packingItems.length === 0) {
         container.innerHTML = '<p class="hint">行李清單是空的</p>';
         updatePackingProgress(0, 0);
+        if (syncBtn) syncBtn.style.display = 'none';
+        if (deleteBtn) deleteBtn.style.display = 'none';
         return;
     }
 
-    container.innerHTML = packingItems.map(item => {
-        const isChecked = checked.includes(item.id);
+    if (syncBtn) syncBtn.style.display = 'block';
+
+    container.innerHTML = packingItems.map((item, idx) => {
+        const isChecked = checked.includes(item.id !== undefined ? item.id : idx);
+        const isMarkedDelete = packingDeleteMarked.includes(idx);
+        const isEditing = packingEditingIdx === idx;
+
+        if (isEditing) {
+            return `
+                <div class="packing-item editing" style="flex-wrap:wrap;">
+                    <div class="form-group" style="flex:2;margin:0;"><input type="text" class="edit-name" value="${item.item}" placeholder="物品名稱"></div>
+                    <div class="form-group" style="flex:1;margin:0;"><input type="text" class="edit-cat" value="${item.category || ''}" placeholder="分類"></div>
+                    <button class="sched-action-btn edit" onclick="event.stopPropagation();confirmEditPacking(${idx})">✓</button>
+                </div>
+            `;
+        }
+
         return `
-            <div class="packing-item ${isChecked ? 'checked' : ''}">
-                <div class="check" onclick="togglePacking(${item.id})">${isChecked ? '✓' : ''}</div>
-                <span onclick="togglePacking(${item.id})">${item.item}</span>
-                ${item.category ? `<span class="place-type" style="margin-left:auto;">${item.category}</span>` : ''}
-                <button class="sched-action-btn edit" onclick="editPackingItem(${item.id})" style="margin-left:8px;">✏️</button>
-                <button class="sched-action-btn delete" onclick="deletePackingItemConfirm(${item.id})">🗑️</button>
+            <div class="packing-item ${isChecked ? 'checked' : ''} ${isMarkedDelete ? 'marked-delete' : ''}" onclick="togglePacking(${item.id !== undefined ? item.id : idx})">
+                <div class="check">${isChecked ? '✓' : ''}</div>
+                <span class="packing-name">${item.item}</span>
+                ${item.category ? `<span class="place-type">${item.category}</span>` : ''}
+                <button class="sched-action-btn edit" onclick="event.stopPropagation();startEditPacking(${idx})">✏️</button>
+                <button class="sched-action-btn delete packing-delete-btn" onclick="event.stopPropagation();markPackingDelete(${idx})">${isMarkedDelete ? '↩' : '🗑️'}</button>
             </div>
         `;
     }).join('');
 
     updatePackingProgress(checked.filter(id => id < packingItems.length).length, packingItems.length);
+
+    // Show/hide delete confirm button
+    if (deleteBtn) {
+        deleteBtn.style.display = packingDeleteMarked.length > 0 ? 'block' : 'none';
+        deleteBtn.textContent = `🗑️ 確認刪除 ${packingDeleteMarked.length} 項`;
+    }
+}
+
+let packingDeleteMarked = [];
+let packingEditingIdx = null;
+
+function markPackingDelete(idx) {
+    if (packingDeleteMarked.includes(idx)) {
+        packingDeleteMarked = packingDeleteMarked.filter(i => i !== idx);
+    } else {
+        packingDeleteMarked.push(idx);
+    }
+    renderPackingList();
+}
+
+function startEditPacking(idx) {
+    packingEditingIdx = idx;
+    renderPackingList();
+}
+
+function confirmEditPacking(idx) {
+    const container = $('#packing-list');
+    const row = container.querySelectorAll('.packing-item')[idx];
+    const name = row.querySelector('.edit-name').value.trim();
+    const cat = row.querySelector('.edit-cat').value.trim();
+
+    if (!name) {
+        alert('物品名稱不能為空');
+        return;
+    }
+
+    packingItems[idx].item = name;
+    packingItems[idx].category = cat;
+    packingEditingIdx = null;
+    renderPackingList();
+
+    // Background update
+    const uuid = packingItems[idx]._uuid || '';
+    if (uuid) {
+        const payload = {
+            action: 'updatePackingItem',
+            sheetId: window.SHEET_ID,
+            user: currentUser,
+            password: getUserPassword(),
+            uuid: uuid,
+            item: { item: name, category: cat }
+        };
+        queueServerWrite(payload, 'update');
+    }
+}
+
+function initConfirmDeletePacking() {
+    const btn = $('#confirm-delete-packing');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            if (packingDeleteMarked.length === 0) return;
+
+            btn.disabled = true;
+            btn.textContent = '刪除中...';
+
+            // Optimistic: remove from local
+            const sorted = [...packingDeleteMarked].sort((a, b) => b - a);
+            sorted.forEach(idx => packingItems.splice(idx, 1));
+            packingItems.forEach((p, i) => p.id = i);
+            packingDeleteMarked = [];
+            localStorage.setItem('packingChecked', '[]');
+            renderPackingList();
+
+            // Background batch delete
+            const payload = {
+                action: 'batchDeletePackingItems',
+                sheetId: window.SHEET_ID,
+                user: currentUser,
+                password: getUserPassword(),
+                indexes: sorted.map(i => i) // already sorted desc
+            };
+            queueServerWrite(payload, 'delete');
+
+            btn.disabled = false;
+            btn.textContent = '🗑️ 確認刪除已選項目';
+        });
+    }
 }
 
 function togglePacking(id) {
@@ -1597,83 +2081,6 @@ function togglePacking(id) {
     }
     localStorage.setItem('packingChecked', JSON.stringify(checked));
     renderPackingList();
-}
-
-function editPackingItem(id) {
-    editingPackingIndex = id;
-    showPackingForm(packingItems[id]);
-}
-
-async function deletePackingItemConfirm(id) {
-    const item = packingItems[id];
-    if (!confirm(`確定刪除「${item.item}」？`)) return;
-    await savePackingItem('delete', null, id);
-}
-
-async function savePackingItem(action, item, idx) {
-    const sheetId = window.SHEET_ID;
-    const uuid = (action !== 'add' && packingItems[idx]) ? (packingItems[idx]._uuid || '') : '';
-
-    const payload = {
-        action: action === 'add' ? 'addPackingItem' :
-                action === 'update' ? 'updatePackingItem' : 'deletePackingItem',
-        sheetId: sheetId,
-        user: currentUser,
-        password: getUserPassword(),
-        uuid: uuid,
-        item: item
-    };
-
-    try {
-        const res = await fetch(CONFIG_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain' },
-            body: JSON.stringify(payload),
-            redirect: 'follow'
-        });
-
-        if (!res.ok && res.status !== 0) {
-            let errMsg = `HTTP ${res.status}`;
-            try { const d = await res.json(); errMsg = d.error || errMsg; } catch (e) {}
-            throw new Error(errMsg);
-        }
-
-        let result = { success: true };
-        try { result = await res.json(); } catch (e) {}
-        if (result.error) throw new Error(result.error);
-
-        // Update local data
-        if (action === 'add') {
-            packingItems.push({ id: packingItems.length, item: item.item, category: item.category });
-        } else if (action === 'update') {
-            packingItems[idx] = { ...packingItems[idx], ...item };
-        } else if (action === 'delete') {
-            packingItems.splice(idx, 1);
-            // Re-index
-            packingItems.forEach((p, i) => p.id = i);
-            // Clean checked
-            localStorage.setItem('packingChecked', JSON.stringify([]));
-        }
-
-        renderPackingList();
-        alert(action === 'delete' ? '✅ 已刪除' : '✅ 已儲存');
-
-    } catch (err) {
-        console.error('行李清單儲存失敗:', err);
-        addToSyncQueue(payload);
-
-        if (action === 'add') {
-            packingItems.push({ id: packingItems.length, item: item.item, category: item.category });
-        } else if (action === 'update') {
-            packingItems[idx] = { ...packingItems[idx], ...item };
-        } else if (action === 'delete') {
-            packingItems.splice(idx, 1);
-            packingItems.forEach((p, i) => p.id = i);
-        }
-
-        renderPackingList();
-        alert('⚠️ 已暫存本地（網路恢復後自動同步）');
-    }
 }
 
 function updatePackingProgress(done, total) {
@@ -2417,7 +2824,8 @@ function initEmergencyFromSegments() {
 // ==================== 行程管理 ====================
 
 let schedManageDate = new Date();
-let editingIndex = null; // null = 新增, number = 編輯第幾列
+let editingIndex = null;
+let scheduleDeleteMarked = [];
 
 function initScheduleManage() {
     updateSchedDateDisplay();
@@ -2489,13 +2897,15 @@ function initScheduleManage() {
 
     // Show sync queue status
     showSyncStatus();
+    initConfirmDeleteSchedule();
 }
 
 function updateSchedDateDisplay() {
     const picker = $('#sched-date-picker');
     const label = $('#sched-selected-date');
+    const dateStr = `${schedManageDate.getFullYear()}-${String(schedManageDate.getMonth()+1).padStart(2,'0')}-${String(schedManageDate.getDate()).padStart(2,'0')}`;
     if (picker) {
-        picker.value = schedManageDate.toISOString().split('T')[0];
+        picker.value = dateStr;
     }
     if (label) {
         label.textContent = schedManageDate.toLocaleDateString('zh-TW', {
@@ -2517,8 +2927,10 @@ function renderScheduleEditList() {
         return;
     }
 
-    container.innerHTML = daySchedule.map(item => `
-        <div class="schedule-edit-item${item._pending ? ' pending' : ''}">
+    container.innerHTML = daySchedule.map(item => {
+        const isMarkedDelete = scheduleDeleteMarked.includes(item._idx);
+        return `
+        <div class="schedule-edit-item${isMarkedDelete ? ' marked-delete' : ''}">
             <div class="sched-info">
                 <div class="sched-time">${item.startTime} - ${item.endTime}</div>
                 <div class="sched-place">${item.place}</div>
@@ -2526,18 +2938,25 @@ function renderScheduleEditList() {
             <div class="sched-actions">
                 ${item._pending ? '<span class="hint">同步中...</span>' : `
                 <button class="sched-action-btn edit" onclick="editScheduleItem(${item._idx})">✏️</button>
-                <button class="sched-action-btn delete" onclick="deleteScheduleItemConfirm(${item._idx})">🗑️</button>
+                <button class="sched-action-btn delete" onclick="markScheduleDelete(${item._idx})">${isMarkedDelete ? '↩' : '🗑️'}</button>
                 `}
             </div>
         </div>
-    `).join('');
+    `}).join('');
+
+    // Show/hide batch delete button
+    const deleteBtn = $('#confirm-delete-schedule');
+    if (deleteBtn) {
+        deleteBtn.style.display = scheduleDeleteMarked.length > 0 ? 'block' : 'none';
+        deleteBtn.textContent = `🗑️ 確認刪除 ${scheduleDeleteMarked.length} 筆`;
+    }
 }
 
 function showScheduleForm(item) {
     $('#schedule-form').style.display = 'block';
     $('#schedule-form-title').textContent = item ? '編輯行程' : '新增行程';
 
-    const dateStr = schedManageDate.toISOString().split('T')[0];
+    const dateStr = `${schedManageDate.getFullYear()}-${String(schedManageDate.getMonth()+1).padStart(2,'0')}-${String(schedManageDate.getDate()).padStart(2,'0')}`;
     $('#sched-date').value = item ? toInputDate(item.date.replace(/\//g, '-')) : dateStr;
     $('#sched-start').value = item ? item.startTime : '';
     $('#sched-end').value = item ? item.endTime : '';
@@ -2551,11 +2970,80 @@ function editScheduleItem(idx) {
     showScheduleForm(scheduleData[idx]);
 }
 
-async function deleteScheduleItemConfirm(idx) {
-    const item = scheduleData[idx];
-    if (!confirm(`確定刪除「${item.place}」？`)) return;
+function markScheduleDelete(idx) {
+    if (scheduleDeleteMarked.includes(idx)) {
+        scheduleDeleteMarked = scheduleDeleteMarked.filter(i => i !== idx);
+    } else {
+        scheduleDeleteMarked.push(idx);
+    }
+    renderScheduleEditList();
+}
 
-    await saveScheduleItem('delete', null, idx);
+function initConfirmDeleteSchedule() {
+    const btn = $('#confirm-delete-schedule');
+    if (btn) {
+        btn.addEventListener('click', async () => {
+            if (scheduleDeleteMarked.length === 0) return;
+
+            btn.disabled = true;
+            btn.textContent = '刪除中...';
+
+            // Collect UUIDs
+            const uuids = scheduleDeleteMarked.map(idx => scheduleData[idx]?._uuid).filter(Boolean);
+
+            // Optimistic: remove from local (sort descending to avoid index shift)
+            const sorted = [...scheduleDeleteMarked].sort((a, b) => b - a);
+            sorted.forEach(idx => scheduleData.splice(idx, 1));
+            scheduleDeleteMarked = [];
+
+            // Update cache
+            try {
+                const cached = JSON.parse(localStorage.getItem('cachedAllData') || '{}');
+                if (cached.schedule) {
+                    cached.schedule = scheduleData;
+                    localStorage.setItem('cachedAllData', JSON.stringify(cached));
+                }
+            } catch (e) {}
+
+            renderScheduleEditList();
+            updateNowTab();
+            updateTimeline();
+
+            // Background batch delete
+            if (uuids.length > 0) {
+                const payload = {
+                    action: 'batchDeleteScheduleItems',
+                    sheetId: window.SHEET_ID,
+                    sheetName: window.SHEET_NAME_SCHEDULE,
+                    user: currentUser,
+                    password: getUserPassword(),
+                    uuids: uuids
+                };
+                fetch(CONFIG_SCRIPT_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify(payload),
+                    redirect: 'follow'
+                }).then(async res => {
+                    let result = {};
+                    try { result = await res.json(); } catch (e) { result = { success: true }; }
+                    if (result.error) {
+                        addToSyncQueue(payload);
+                        showSyncStatus();
+                        alert('⚠️ 刪除寫入失敗：' + result.error);
+                    }
+                    silentLoadData();
+                }).catch(err => {
+                    addToSyncQueue(payload);
+                    showSyncStatus();
+                    alert('⚠️ 網路異常，已暫存本地');
+                });
+            }
+
+            btn.disabled = false;
+            btn.textContent = '🗑️ 確認刪除已選項目';
+        });
+    }
 }
 
 async function saveScheduleItem(action, item, idx) {
@@ -2598,14 +3086,57 @@ async function saveScheduleItem(action, item, idx) {
     updateNowTab();
     updateTimeline();
 
-    // Write to server in background (queued to prevent concurrent delete issues)
-    queueServerWrite(payload, action);
+    // Add doesn't need queue (no row conflict), send directly
+    if (action === 'add') {
+        fetch(CONFIG_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(payload),
+            redirect: 'follow'
+        }).then(async res => {
+            let result = {};
+            try { result = await res.json(); } catch (e) { result = { success: true }; }
+            if (result.error) {
+                addToSyncQueue(payload);
+                showSyncStatus();
+                alert('⚠️ 新增寫入失敗：' + result.error);
+            }
+            silentLoadData();
+        }).catch(err => {
+            addToSyncQueue(payload);
+            showSyncStatus();
+            alert('⚠️ 網路異常，已暫存本地');
+        });
+    } else {
+        // Update: send directly (no row conflict, row count doesn't change)
+        fetch(CONFIG_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: JSON.stringify(payload),
+            redirect: 'follow'
+        }).then(async res => {
+            let result = {};
+            try { result = await res.json(); } catch (e) { result = { success: true }; }
+            if (result.error) {
+                addToSyncQueue(payload);
+                showSyncStatus();
+                alert('⚠️ 修改寫入失敗：' + result.error);
+            }
+        }).catch(err => {
+            addToSyncQueue(payload);
+            showSyncStatus();
+            alert('⚠️ 網路異常，已暫存本地');
+        });
+    }
 }
 
 // Ensure server writes execute one at a time (especially for deletes)
 let _writeQueue = Promise.resolve();
+let _isWriting = false;
 
 function queueServerWrite(payload, action) {
+    _isWriting = true;
+
     _writeQueue = _writeQueue.then(() => {
         return fetch(CONFIG_SCRIPT_URL, {
             method: 'POST',
@@ -2633,6 +3164,8 @@ function queueServerWrite(payload, action) {
             addToSyncQueue(payload);
             showSyncStatus();
             alert('⚠️ 網路異常，資料已暫存本地');
+        }).finally(() => {
+            _isWriting = false;
         });
     });
 }
@@ -2651,15 +3184,21 @@ function getSyncQueue() {
 function showSyncStatus() {
     const el = $('#sync-status');
     const actionsEl = $('#sync-actions');
-    if (!el) return;
+    const moreEl = $('#more-sync-status');
+    const moreActionsEl = $('#more-sync-actions');
     const queue = getSyncQueue();
+
     if (queue.length > 0) {
-        el.style.display = 'block';
-        el.textContent = `⚠️ ${queue.length} 筆待同步`;
+        const msg = `⚠️ ${queue.length} 筆待同步`;
+        if (el) { el.style.display = 'block'; el.textContent = msg; }
         if (actionsEl) actionsEl.style.display = 'block';
+        if (moreEl) { moreEl.style.display = 'block'; moreEl.textContent = msg; }
+        if (moreActionsEl) moreActionsEl.style.display = 'block';
     } else {
-        el.style.display = 'none';
+        if (el) el.style.display = 'none';
         if (actionsEl) actionsEl.style.display = 'none';
+        if (moreEl) moreEl.style.display = 'none';
+        if (moreActionsEl) moreActionsEl.style.display = 'none';
     }
 }
 

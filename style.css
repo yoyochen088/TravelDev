@@ -823,6 +823,7 @@ body {
     padding: 16px;
     margin-bottom: 12px;
     box-shadow: var(--shadow);
+    overflow: hidden;
 }
 
 .tool-header {
@@ -1230,6 +1231,11 @@ body {
     color: var(--primary);
 }
 
+.sched-action-btn.delete:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
 .sched-action-btn.delete {
     background: #fce8e6;
     color: #d93025;
@@ -1246,6 +1252,7 @@ body {
 
 .form-group {
     margin-bottom: 12px;
+    overflow: hidden;
 }
 
 .form-group label {
@@ -1265,7 +1272,11 @@ body {
     min-width: 0;
     max-width: 100%;
     box-sizing: border-box;
-    -webkit-appearance: none;
+}
+
+.form-group input[type="date"],
+.form-group input[type="time"] {
+    padding: 8px 10px;
 }
 
 .form-group select {
@@ -1299,6 +1310,7 @@ body {
     width: 100%;
     min-width: 0;
     overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .form-actions {
@@ -1342,6 +1354,34 @@ body {
     flex-wrap: wrap;
 }
 
+.packing-batch-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.packing-batch-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: var(--primary-light);
+    border-radius: 6px;
+    font-size: 0.85rem;
+}
+
+.packing-batch-item span {
+    flex: 1;
+}
+
+.packing-batch-item button {
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #d93025;
+}
+
 .packing-item:active {
     background: var(--primary-light);
 }
@@ -1349,6 +1389,20 @@ body {
 .packing-item.checked {
     opacity: 0.5;
     text-decoration: line-through;
+}
+
+.packing-item.marked-delete {
+    background: #fce8e6;
+    border-left: 3px solid #d93025;
+}
+
+.packing-name {
+    flex: 1;
+}
+
+.packing-delete-btn {
+    margin-left: auto;
+    flex-shrink: 0;
 }
 
 .packing-item .check {

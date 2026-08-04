@@ -165,7 +165,17 @@
 
             <!-- More Tab (選單列表) -->
             <section id="tab-more" class="tab-content">
+                <div id="more-sync-status" class="sync-status" style="display:none;margin-bottom:12px;"></div>
+                <div id="more-sync-actions" style="display:none;margin-bottom:12px;text-align:center;">
+                    <button class="tool-btn-sm" onclick="retrySyncQueue()">🔄 重試同步</button>
+                    <button class="tool-btn-sm" onclick="clearSyncQueue()" style="margin-left:8px;">🗑️ 清除</button>
+                </div>
                 <div class="more-menu">
+                    <div class="more-menu-item" data-page="trip-dates">
+                        <span class="more-icon">✈️</span>
+                        <span class="more-label">旅程日期</span>
+                        <span class="more-arrow">›</span>
+                    </div>
                     <div class="more-menu-item" data-page="schedule-manage">
                         <span class="more-icon">📝</span>
                         <span class="more-label">行程管理</span>
@@ -174,6 +184,11 @@
                     <div class="more-menu-item" data-page="currency">
                         <span class="more-icon">💱</span>
                         <span class="more-label">匯率快算</span>
+                        <span class="more-arrow">›</span>
+                    </div>
+                    <div class="more-menu-item" data-page="shopping">
+                        <span class="more-icon">🛍️</span>
+                        <span class="more-label">購物清單</span>
                         <span class="more-arrow">›</span>
                     </div>
                     <div class="more-menu-item" data-page="packing">
@@ -186,18 +201,13 @@
                         <span class="more-label">緊急資訊</span>
                         <span class="more-arrow">›</span>
                     </div>
-                    <div class="more-menu-item" data-page="trip-dates">
-                        <span class="more-icon">✈️</span>
-                        <span class="more-label">旅程日期</span>
-                        <span class="more-arrow">›</span>
-                    </div>
                     <div class="more-menu-item" data-page="settings">
                         <span class="more-icon">⚙️</span>
                         <span class="more-label">設定</span>
                         <span class="more-arrow">›</span>
                     </div>
                 </div>
-                <p class="hint" style="text-align:center;margin-top:16px;">版本 v2-32</p>
+                <p class="hint" id="app-version" style="text-align:center;margin-top:16px;"></p>
 
                 <!-- Sub-pages (hidden by default) -->
                 <div id="more-subpage" class="more-subpage" style="display:none;">
@@ -264,7 +274,7 @@
 
     <template id="tpl-packing">
         <div class="tool-section">
-            <div class="tool-header">🧳 行李清單</div>
+            <div class="tool-header" style="display:flex;justify-content:space-between;align-items:center;">🧳 行李清單 <button id="sync-packing-checks" class="tool-btn-sm" style="display:none;">💾 回存</button></div>
             <div id="packing-list" class="packing-list">
                 <p class="hint">載入中...</p>
             </div>
@@ -274,21 +284,35 @@
                     <div class="progress-fill" id="packing-progress-bar"></div>
                 </div>
             </div>
+            <button id="confirm-delete-packing" class="action-btn" style="width:100%;margin-top:8px;background:#d93025;display:none;">🗑️ 確認刪除已選項目</button>
             <button id="add-packing-btn" class="action-btn" style="width:100%;margin-top:12px;">＋ 新增物品</button>
             <div id="packing-form" class="schedule-form" style="display:none;margin-top:12px;">
-                <div class="form-row">
-                    <div class="form-group" style="flex:2;">
-                        <label>物品名稱</label>
-                        <input type="text" id="packing-item-name" placeholder="物品名稱">
-                    </div>
-                    <div class="form-group" style="flex:1;">
-                        <label>分類</label>
-                        <input type="text" id="packing-item-category" placeholder="分類">
-                    </div>
-                </div>
+                <div id="packing-batch-list" class="packing-batch-list"></div>
                 <div class="form-actions">
-                    <button id="packing-cancel" class="tool-btn" style="background:var(--text-secondary);">取消</button>
-                    <button id="packing-save" class="tool-btn">儲存</button>
+                    <button id="packing-save" class="tool-btn" style="width:100%;">全部送出</button>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="tpl-shopping">
+        <div class="tool-section">
+            <div class="tool-header" style="display:flex;justify-content:space-between;align-items:center;">🛍️ 購物清單 <button id="sync-shopping-checks" class="tool-btn-sm" style="display:none;">💾 回存</button></div>
+            <div id="shopping-list" class="packing-list">
+                <p class="hint">載入中...</p>
+            </div>
+            <div class="packing-progress">
+                <span id="shopping-progress-text">0/0</span>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="shopping-progress-bar"></div>
+                </div>
+            </div>
+            <button id="confirm-delete-shopping" class="action-btn" style="width:100%;margin-top:8px;background:#d93025;display:none;">🗑️ 確認刪除已選項目</button>
+            <button id="add-shopping-btn" class="action-btn" style="width:100%;margin-top:12px;">＋ 新增物品</button>
+            <div id="shopping-form" class="schedule-form" style="display:none;margin-top:12px;">
+                <div id="shopping-batch-list" class="packing-batch-list"></div>
+                <div class="form-actions">
+                    <button id="shopping-save" class="tool-btn" style="width:100%;">全部送出</button>
                 </div>
             </div>
         </div>
@@ -399,6 +423,7 @@
             </div>
             <div id="schedule-edit-list" class="schedule-edit-list">
             </div>
+            <button id="confirm-delete-schedule" class="action-btn" style="width:100%;margin-top:8px;background:#d93025;display:none;">🗑️ 確認刪除已選項目</button>
             <button id="add-schedule-btn" class="action-btn" style="width:100%;margin-top:12px;">＋ 新增行程</button>
         </div>
 
