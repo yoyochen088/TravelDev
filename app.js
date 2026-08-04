@@ -1,7 +1,7 @@
 // ==================== 旅遊助手 PWA ====================
 
 // --- State ---
-const APP_VERSION = 'v2-63';
+const APP_VERSION = 'v2-64';
 let scheduleData = [];
 let randomPlaces = [];
 let foodList = [];
@@ -2924,6 +2924,8 @@ function renderScheduleEditList() {
 
     if (daySchedule.length === 0) {
         container.innerHTML = '<div class="empty-state"><div class="emoji">📭</div><p>這天沒有行程</p></div>';
+        const deleteBtn = $('#confirm-delete-schedule');
+        if (deleteBtn) deleteBtn.style.display = 'none';
         return;
     }
 
