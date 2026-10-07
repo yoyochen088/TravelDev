@@ -1,7 +1,7 @@
 // ==================== 旅遊助手 PWA ====================
 
 // --- State ---
-const APP_VERSION = 'v2-64';
+const APP_VERSION = 'v2-65';
 let scheduleData = [];
 let randomPlaces = [];
 let foodList = [];
@@ -3699,20 +3699,34 @@ async function callGeminiProxy(requestBody, model) {
     if (!apiKey) throw new Error('未設定 API Key');
 
     const m = model || GEMINI_MODEL;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
 
-    const res = await fetch(url, {
+    // Call via Apps Script proxy (avoids region restrictions)
+    const payload = {
+        action: 'geminiProxy',
+        user: currentUser,
+        password: getUserPassword(),
+        apiKey: apiKey,
+        model: m,
+        requestBody: requestBody
+    };
+
+    const res = await fetch(CONFIG_SCRIPT_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload),
+        redirect: 'follow'
     });
 
-    if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return { error: { message: errData.error?.message || `HTTP ${res.status}` } };
+    let data = {};
+    try { data = await res.json(); } catch (e) {
+        return { error: { message: '無法解析回應' } };
     }
 
-    return await res.json();
+    if (data.error) {
+        return { error: { message: typeof data.error === 'string' ? data.error : (data.error.message || 'Unknown error') } };
+    }
+
+    return data;
 }
 
 // --- Image Translation ---

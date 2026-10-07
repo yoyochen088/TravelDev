@@ -1,0 +1,23 @@
+# 系統檔案
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 編輯器 / IDE
+.vscode/
+*.code-workspace
+
+# 日誌與暫存
+*.log
+*.tmp
+tmp/
+temp/
+
+# 相依套件（目前專案沒有，但先預留）
+node_modules/
+
+# 環境變數 / 秘密（若未來新增，避免外洩）
+.env
+.env.*
+secrets.json
+*.key
